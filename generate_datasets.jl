@@ -30,11 +30,11 @@ begin
         push!(models, complete(rs))
     end
     u0 = [:E => 5.0, :L => 0.0, :A => 0.0]
+    t_final = 10.
 end
 
 @load "params.jld2" param_sets
 @load "data.jld2" all_data
-t_final = 10.;
 
 function obj_osc(sol, f, f2sum)
     return [begin
@@ -165,6 +165,11 @@ begin
     end
     display(f)
 end
+
+@save "params.jld2" param_sets
+@save "data.jld2" all_data
+
+# TMP
 
 function fit_model(model, data, u0)
     obs = Dict(
