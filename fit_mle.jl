@@ -1,6 +1,10 @@
+# This script takes one command-line argument, which is the dataset index.
+data_idx = parse(Int64, ARGS[1]);
+mkpath(joinpath(@__DIR__, "mle_fits")) # output directory
+
 # Fetch packages.
-using CairoMakie, Catalyst, Combinatorics, DataFrames, Distributions, JLD2, OrdinaryDiffEq, PEtab, ProgressMeter, Optim, StableRNGs
-using OptimizationBBO, OptimizationOptimJL
+using Catalyst, Combinatorics, DataFrames, Distributions, OrdinaryDiffEq, PEtab, Optim
+using JLD2, ProgressMeter, Suppressor
 
 # Generates all potential models.
 begin
@@ -31,10 +35,11 @@ begin
 	t_final = 10.
 end
 
-@load "params.jld2" param_sets
-@load "data.jld2" all_data
+@load "params.jld2" param_sets;
+@load "data.jld2" all_data;
 
-function fit_model(model, data, u0)
+# Fits all models sequentially to one dataset.
+function create_petab_model(model, data, u0)
     obs = Dict(
         "obs_E" => PEtabObservable(max(0,model.E), 0.01 + model.σ * max(0,model.E)),
         "obs_L" => PEtabObservable(max(0,model.L), 0.01 + model.σ * max(0,model.L)),
@@ -46,13 +51,17 @@ function fit_model(model, data, u0)
         DataFrame(obs_id = "obs_L", time = data.t, measurement = data.data_L),
         DataFrame(obs_id = "obs_A", time = data.t, measurement = data.data_A)
     )
-    petab_model = PEtabModel(model, obs, measurements, p_est; speciemap = u0)
-    petab_prob = PEtabODEProblem(petab_model)
-    petab_fit = calibrate_multistart(petab_prob, BFGS(), 10)
-    return (petab_model, petab_fit)
+    return PEtabModel(model, obs, measurements, p_est; speciemap = u0)
 end
-# n_models = length(models); n_data = length(all_data);
-data_idx = parse(Int64, ARGS[1]);
+
+function fit_petab_model(petab_model)
+    petab_prob = PEtabODEProblem(petab_model)
+    return calibrate_multistart(petab_prob, BFGS(), 10)
+end
+
 data = all_data[data_idx];
-model_fits = @showprogress [fit_model(model, data, u0) for model in models];
-@save "mle_fits/data$(data_idx).jld2" model_fits
+petab_models = [create_petab_model(model, data, u0) for model in models];
+model_fits = @showprogress [fit_petab_model(petab_model) for petab_model in petab_models[1:64]];
+@suppress_err @save "mle_fits/data$(data_idx).jld2" model_fits
+
+
