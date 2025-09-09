@@ -1,10 +1,6 @@
-# This script takes one command-line argument, which is the dataset index.
-data_idx = parse(Int64, ARGS[1]);
-mkpath(joinpath(@__DIR__, "mle_fits")) # output directory
-
 # Fetch packages.
-using Catalyst, Combinatorics, DataFrames, Distributions, OrdinaryDiffEq, PEtab, Optim
-using JLD2, ProgressMeter, Suppressor
+using Catalyst, Combinatorics
+using DataFrames, Distributions, PEtab
 
 # Generates all potential models.
 begin
@@ -20,9 +16,9 @@ begin
         Reaction(d1, [E], []),
         Reaction(d2, [L], []),
         Reaction(d3, [A], []),
-        Reaction(K1, [E], [], [2], []),
-        Reaction(K2, [L], [], [2], []),
-        Reaction(K3, [A], [], [2], []),
+        Reaction(K1, [E], [E], [2], [1]),
+        Reaction(K2, [L], [L], [2], [1]),
+        Reaction(K3, [A], [A], [2], [1]),
     ]
     models = []
     for rxs in [[], collect(combinations(rxs_extra))...]
@@ -32,20 +28,21 @@ begin
         push!(models, complete(rs))
     end
     u0 = [:E => 5.0, :L => 0.0, :A => 0.0]
-	t_final = 10.
+    t_final = 10.
 end
 
-@load "params.jld2" param_sets;
-@load "data.jld2" all_data;
-
-# Fits all models sequentially to one dataset.
 function create_petab_model(model, data, u0)
     obs = Dict(
         "obs_E" => PEtabObservable(max(0,model.E), 0.01 + model.σ * max(0,model.E)),
         "obs_L" => PEtabObservable(max(0,model.L), 0.01 + model.σ * max(0,model.L)),
         "obs_A" => PEtabObservable(max(0,model.A), 0.01 + model.σ * max(0,model.A))
     )
-    p_est = [PEtabParameter(ModelingToolkit.getname(p)) for p in parameters(model)]
+    p_est = [PEtabParameter(
+        ModelingToolkit.getname(p);
+        lb = 1e-9, ub = 1e3,
+        prior = ModelingToolkit.getname(p) == :σ ? Normal(-1, 1) : Normal(0, 2),
+        prior_on_linear_scale = false
+    ) for p in parameters(model)]
     measurements = vcat(
         DataFrame(obs_id = "obs_E", time = data.t, measurement = data.data_E),
         DataFrame(obs_id = "obs_L", time = data.t, measurement = data.data_L),
@@ -53,15 +50,3 @@ function create_petab_model(model, data, u0)
     )
     return PEtabModel(model, obs, measurements, p_est; speciemap = u0)
 end
-
-function fit_petab_model(petab_model)
-    petab_prob = PEtabODEProblem(petab_model)
-    return calibrate_multistart(petab_prob, BFGS(), 10)
-end
-
-data = all_data[data_idx];
-petab_models = [create_petab_model(model, data, u0) for model in models];
-model_fits = @showprogress [fit_petab_model(petab_model) for petab_model in petab_models[1:64]];
-@suppress_err @save "mle_fits/data$(data_idx).jld2" model_fits
-
-
