@@ -71,7 +71,7 @@ nllhs = @showprogress [petab_prob.nllh(model_fit.xmin; prior=false) for (petab_p
 begin
     f = Figure()
     ax = Axis(
-        f[1,1], xlabel="Model index", ylabel=L"p(\mathbf{y} \mid \theta, \text{model})",
+        f[1,1], xlabel="Model index", ylabel=L"-\log p(\mathbf{y} \mid \theta, \text{model})",
         xminorticks=8:16:64, xminorgridvisible=true, xminorgridcolor=RGBAf(0, 0, 0, 0.12),
         limits=((0.5, n_models+0.5), nothing), xticks=16:16:64,
     )
@@ -103,7 +103,7 @@ fmins = getproperty.(model_fits, :fmin);
 begin
     f = Figure()
     ax = Axis(
-        f[1,1], xlabel="Model index", ylabel=L"p(\mathbf{y}, \theta \mid \text{model})",
+        f[1,1], xlabel="Model index", ylabel=L"-\log p(\mathbf{y}, \theta \mid \text{model})",
         xminorticks=8:16:64, xminorgridvisible=true, xminorgridcolor=RGBAf(0, 0, 0, 0.12),
         limits=((0.5, n_models+0.5), nothing), xticks=16:16:64,
     )
@@ -348,3 +348,55 @@ begin
     f
 end
 
+# Temporary for IS
+data_idx = 12;
+@load "MLE_fits/IS$(data_idx).jld2" IS_results;
+
+n_samples = 10000;
+IS_logests = first.(IS_results)
+IS_varlog_vec = [
+    (exp(IS_logmeansq - 2IS_logmean) - 1) / n_samples
+    for (IS_logmean, IS_logmeansq) in IS_results
+];
+IS_sdlog_vec = sqrt.(IS_varlog_vec)
+
+begin
+    max_idx = 36;
+    sorted = sortperm(IS_logests, rev=true)
+    f = Figure()
+    ax = Axis(
+        f[1,1], xlabel="Model index", ylabel=L"$p(\mathbf{y} \mid \text{model})$",
+        xminorticks=8:16:64, xminorgridvisible=true, xminorgridcolor=RGBAf(0, 0, 0, 0.12),
+        # limits=((0.5, n_models+0.5), nothing), xticks=16:16:64,
+        limits=((0.5, max_idx + 0.5), nothing), xticks=8:8:64,
+        
+    )
+    
+    scatter!(IS_logests[sorted[1:max_idx]])
+    errorbars!(1:max_idx, IS_logests[sorted[1:max_idx]], 2IS_sdlog_vec[sorted[1:max_idx]], whiskerwidth=8)
+    scatter!(LAs[sorted[1:max_idx]])
+
+    # errorbars!(1:max_idx, zeros(max_idx), 2IS_sdlog_vec[sorted[1:max_idx]], whiskerwidth=8)
+    # scatter!(LAs[sorted[1:max_idx]] .- IS_logests[sorted[1:max_idx]], color=palette[2])
+    
+    ax = Axis(
+        f[2,1], ylabel="Reaction inclusion",
+        # limits=((0.5, n_models+0.5), (0.5, n_extra+0.5)), xticks=16:16:64, 
+        limits=((0.5, max_idx+0.5), (0.5, n_extra+0.5)), xticks=8:8:64,         
+        xgridvisible=false, xaxisposition=:top, yreversed=true, ygridvisible=false, 
+        yticks=(1:6, latexstring.(rx_labels)),
+    )
+    for (i, m) in enumerate(sortperm(-LAs)[1:max_idx])
+        for j in combs[m]
+            band!(
+                [i-0.5, i+0.5], fill(j-0.5,2), fill(j+0.5,2),
+                color = Makie.wong_colors()[(j ∈ combs[data_idx]) ? 5 : 6]
+            )
+        end
+    end
+    rx_str = join(rx_labels[combs[data_idx]], ",\\; ")
+    Label(f[0,1], latexstring("\\textbf{Dataset $data_idx:} \$$rx_str\$"), tellwidth=false, fontsize=16)
+    rowsize!(f.layout, 1, Relative(0.6))
+    rowgap!(f.layout, 2, 5)
+    f
+end

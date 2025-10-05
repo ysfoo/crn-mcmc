@@ -39,7 +39,7 @@ function create_petab_model(model, data, u0)
     )
     p_est = [PEtabParameter(
         ModelingToolkit.getname(p);
-        lb = 1e-9, ub = 1e3,
+        lb = 0., ub = Inf,
         prior = ModelingToolkit.getname(p) == :σ ? Normal(-1, 1) : Normal(0, 2),
         prior_on_linear_scale = false
     ) for p in parameters(model)]

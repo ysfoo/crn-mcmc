@@ -8,6 +8,9 @@ elijah_tmp/
 *.out
 *.log
 
+# Serialized output
+*.jld2
+
 # SLURM scripts
 *.slurm
 
