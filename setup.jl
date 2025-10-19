@@ -27,8 +27,16 @@ begin
             [reduce(vcat, [Symbolics.get_variables(rx.rate) ∩ all_ps for rx in [rxs_base; rxs]])...; σ])
         push!(models, complete(rs))
     end
-    u0 = [:E => 5.0, :L => 0.0, :A => 0.0]
-    t_final = 10.
+    n_extra = length(rxs_extra);
+n_models = length(models);
+
+# Integer combinations
+combs = [Int64[], combinations(collect(1:n_extra))...];
+rx_boolmat = [Int(rx ∈ comb) for comb in combs, rx in 1:n_extra] # 2^R by R
+
+# For ODE simulaion
+u0 = [:E => 5.0, :L => 0.0, :A => 0.0]
+t_final = 10.
 end
 
 function create_petab_model(model, data, u0)
@@ -50,3 +58,15 @@ function create_petab_model(model, data, u0)
     )
     return PEtabModel(model, obs, measurements, p_est; speciemap = u0)
 end
+
+# Latex labels
+rx_labels = [
+        begin 
+        s = string(rx)
+        s = s[findfirst(' ', s)+1:end]
+        s = Base.replace(s, "-->" => "\\rightarrow")
+        s = Base.replace(s, "X" => "X_")
+        s = Base.replace(s, "*" => "")
+        s
+    end for rx in rxs_extra
+]

@@ -2,7 +2,7 @@
 include(joinpath(@__DIR__, "setup.jl"));
 
 # Fetch packages.
-using CairoMakie, Distributions, JLD2, ProgressMeter, Optim, StableRNGs
+using CairoMakie, Distributions, JLD2, LineSearches, ProgressMeter, Optim, StableRNGs
 using OptimizationBBO, OptimizationOptimJL
 
 const RNG = StableRNG(1);
@@ -56,7 +56,7 @@ function tune_params(model, u0, t_final, u_trg, λ1=1e-3, λ2=1e-3, n_save=101)
     opt_func = OptimizationFunction(parameter_suitability, Optimization.AutoForwardDiff())
     opt_prob = OptimizationProblem(opt_func, last.(p0)[1:end-1], (oprob_base, set_p, u_trg);
         lb = [fill(1e-2, n_p-1)...], ub = [fill(10.0, n_p-1)...])
-    opt_sol = solve(opt_prob, BFGS())
+    opt_sol = solve(opt_prob, BFGS(linesearch = LineSearches.Backtracking()))
 
     # opt_prob = OptimizationProblem(parameter_suitability, last.(p0)[1:end-1], (oprob_base, set_p, u_trg);
     #     lb = [fill(1e-2, n_p-1)...], ub = [fill(100.0, n_p-1)...])
@@ -72,7 +72,7 @@ end
 #     for (model, opt_sol) in zip(models, bbo_sols)
 # ];
 
-bfgs_sols = @showprogress [tune_params(model, u0, t_final, [3., 2., 1.]) for model in models[1:64]];
+bfgs_sols = @showprogress [tune_params(model, u0, t_final, [3., 2., 1.]) for model in models];
 param_sets = [
     [p => p_val for (p, p_val) in zip(parameters(model), [opt_sol.u..., 0.05])]
     for (model, opt_sol) in zip(models, bfgs_sols)

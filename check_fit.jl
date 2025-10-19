@@ -1,44 +1,46 @@
 # Run setup.jl.
 include(joinpath(@__DIR__, "setup.jl"));
 
-# E -> 0, 2A -> 0
+# E -> ∅, 2A -> A
 data_idx = 12;
-
-# This script takes one command-line argument, which is the dataset index.
-# data_idx = parse(Int64, ARGS[1]);
 
 # Fetch packages.
 using Combinatorics, OrdinaryDiffEq, PEtab
+using LinearAlgebra, LogExpFunctions, ParetoSmooth, StatsBase
 using JLD2, ProgressMeter, Suppressor
 using CairoMakie, LaTeXStrings
 set_theme!(theme_latexfonts());
 palette = Makie.wong_colors();
 
-n_extra = length(rxs_extra);
-n_models = length(models);
-
-@load "params.jld2" param_sets
-@load "data.jld2" all_data
+@load "params.jld2" param_sets;
+@load "data.jld2" all_data;
 
 data = all_data[data_idx];
 petab_models = @showprogress [create_petab_model(model, data, u0) for model in models];
-@load "MLE_fits/data$(data_idx).jld2" model_fits MLE_hessians;
-petab_probs = @showprogress [PEtabODEProblem(m) for m in petab_models];
+petab_probs = @showprogress [
+    PEtabODEProblem(pmodel; odesolver=ODESolver(Rodas5P(), verbose=false)) 
+    for pmodel in petab_models
+];
+
+@load "output/data$(data_idx)/MLE.jld2" model_fits fit_times;
+@load "output/data$(data_idx)/MLE_hess.jld2" MLE_hessians hess_times;
+
+
+
+### Explore some model fits
 
 # Inspect model fit for data-generating model
 model_idx = data_idx;
 model_fit = model_fits[model_idx];
 model_fit.fmin
+exp10.(collect(model_fit.xmin))
+param_sets[data_idx]
 petab_model = petab_models[model_idx];
 petab_prob = petab_probs[model_idx];
 fit_sol = PEtab.get_odesol(model_fit.xmin, petab_prob);
 
-# Integer combiantions
-combs = [Int64[], combinations(collect(1:n_extra))...];
-rx_boolmat = [Int(rx ∈ comb) for comb in combs, rx in 1:n_extra] # 2^R by R
-
 # Alternative fit
-other_idx = 21; # replace 
+other_idx = 21; # replace E -> ∅ with 2E -> E
 other_fit = model_fits[other_idx];
 other_fit.fmin
 other_model = petab_models[other_idx];
@@ -53,18 +55,23 @@ oprob = ODEProblem(models[data_idx], u0, data.t[end], param_sets[data_idx]);
 gt_sol = solve(oprob);
 gt_solmat = reduce(hcat, gt_sol(t_save).u);
 
-# Latex labels
-rx_labels = [
-        begin 
-        s = string(rx)
-        s = s[findfirst(' ', s)+1:end]
-        s = Base.replace(s, "-->" => "\\rightarrow")
-        s = Base.replace(s, "X" => "X_")
-        s = Base.replace(s, "*" => "")
-        s
-    end for rx in rxs_extra
-]
-
+begin
+    f = Figure(size=(800, 450))
+    for d in eachindex(u0)
+        ax = Axis(f[1, d])
+        lines!(t_save, gt_solmat[d,:], color=Makie.wong_colors()[d])
+        lines!(t_save, fit_solmat[d,:], color=Makie.wong_colors()[d], linestyle=:dash)
+        lines!(t_save, other_solmat[d,:], color=Makie.wong_colors()[d], linestyle=:dot)
+    end
+    Legend(
+        f[2, :],
+        [LineElement(;linestyle) for linestyle in (:solid, :dash, :dot)],
+        ["Ground truth", "Fit of data-generating model", "Fit of model with alternative death term"],
+        tellwidth=false, orientation = :horizontal
+    )
+    # rowsize!(f.layout, 4, Relative(0.1))
+    f
+end
 
 # Plot -log p(y | θ, model) @ MAP
 nllhs = @showprogress [petab_prob.nllh(model_fit.xmin; prior=false) for (petab_prob, model_fit) in zip(petab_probs, model_fits)];
@@ -165,7 +172,6 @@ begin
 end
 
 # Laplace approximation
-using LinearAlgebra
 
 logdets = -logdet.(MLE_hessians);
 LAs = -fmins .+ 0.5logdets + 0.5nparams*log(2π)
@@ -201,7 +207,6 @@ end
 
 
 # Strucutral uncertainty via BIC
-using LogExpFunctions, StatsBase
 logposts_BIC = -0.5BICs;
 denom_BIC = logsumexp(logposts_BIC)
 ws_BIC = ProbabilityWeights(exp.(logposts_BIC .- denom_BIC));
@@ -318,54 +323,28 @@ end
 
 
 
-
-# Temporary
-petab_probs[end].nllh.(getproperty.(model_fits[end].runs, :xmin))
-getproperty.(model_fits[end].runs, :xmin)
-sortperm(fmins)
-
-petab_probs[12].nllh.(getproperty.(model_fits[12].runs, :xmin))
-
-petab_probs[31].nllh.(getproperty.(model_fits[31].runs, :xmin))
-reduce(hcat, collect.(getproperty.(model_fits[31].runs, :xmin)))'
-petab_models[31].parametermap
-
-begin
-    f = Figure(size=(800, 450))
-    for d in eachindex(u0)
-        ax = Axis(f[1, d])
-        lines!(t_save, gt_solmat[d,:], color=Makie.wong_colors()[d])
-        lines!(t_save, fit_solmat[d,:], color=Makie.wong_colors()[d], linestyle=:dash)
-        lines!(t_save, other_solmat[d,:], color=Makie.wong_colors()[d], linestyle=:dot)
-    end
-    Legend(
-        f[2, :],
-        [LineElement(;linestyle) for linestyle in (:solid, :dash, :dot)],
-        ["Ground truth", "Fit of data-generating model", "Fit of model with alternative death term"],
-        tellwidth=false, orientation = :horizontal
-    )
-    # rowsize!(f.layout, 4, Relative(0.1))
-    f
-end
-
-# Temporary for IS
+### Playground for IS
 data_idx = 12;
-@load "MLE_fits/IS$(data_idx).jld2" IS_results;
+@load "output/data$(data_idx)/IS.jld2" IS_results;
 
-n_samples = 10000;
-IS_logests = first.(IS_results)
-IS_varlog_vec = [
-    (exp(IS_logmeansq - 2IS_logmean) - 1) / n_samples
-    for (IS_logmean, IS_logmeansq) in IS_results
-];
+n_tot = 10^6
+
+# OIS with w = joint / proposal
+IS_logws_vec = first.(IS_results);
+IS_logmean_vec = IS_logests = logsumexp.(IS_logws_vec) .- log(n_tot);
+IS_logmeansq_vec = logsumexp.(2 .* IS_logws_vec) .- log(n_tot);
+IS_varlog_vec = (exp.(IS_logmeansq_vec .- 2 .* IS_logmean_vec) .- 1) ./ n_tot
 IS_sdlog_vec = sqrt.(IS_varlog_vec)
+IS_ESS_prop_vec = exp.(2 .* IS_logmean_vec .- IS_logmeansq_vec)
+hist(IS_ESS_prop)
+hist(IS_logws_vec[end])
 
 begin
     max_idx = 36;
     sorted = sortperm(IS_logests, rev=true)
     f = Figure()
     ax = Axis(
-        f[1,1], xlabel="Model index", ylabel=L"$p(\mathbf{y} \mid \text{model})$",
+        f[1,1], xlabel="Model index", ylabel=L"$\log p(\mathbf{y} \mid \text{model})$",
         xminorticks=8:16:64, xminorgridvisible=true, xminorgridcolor=RGBAf(0, 0, 0, 0.12),
         # limits=((0.5, n_models+0.5), nothing), xticks=16:16:64,
         limits=((0.5, max_idx + 0.5), nothing), xticks=8:8:64,
@@ -374,7 +353,7 @@ begin
     
     scatter!(IS_logests[sorted[1:max_idx]])
     errorbars!(1:max_idx, IS_logests[sorted[1:max_idx]], 2IS_sdlog_vec[sorted[1:max_idx]], whiskerwidth=8)
-    scatter!(LAs[sorted[1:max_idx]])
+    # scatter!(LAs[sorted[1:max_idx]])
 
     # errorbars!(1:max_idx, zeros(max_idx), 2IS_sdlog_vec[sorted[1:max_idx]], whiskerwidth=8)
     # scatter!(LAs[sorted[1:max_idx]] .- IS_logests[sorted[1:max_idx]], color=palette[2])
@@ -400,3 +379,55 @@ begin
     rowgap!(f.layout, 2, 5)
     f
 end
+
+# PSIS with w = joint / proposal
+model_idx = 37;
+IS_logws_vec = first.(IS_results);
+
+IS_logws = IS_logws_vec[model_idx];
+offset = maximum(IS_logws)
+PSIS_ratios = exp.(IS_logws .- offset);
+ξ = psis!(PSIS_ratios; log_weights=false) # mutates PSIS_ratios
+
+PSIS_logmean = PSIS_logest = log(mean(PSIS_ratios)) + offset
+IS_logests[model_idx]
+
+PSIS_logmeansq = log(mean(PSIS_ratios.^2)) + 2*offset
+IS_logmeansq_vec[model_idx]
+
+PSIS_varlog = (exp(PSIS_logmeansq - 2PSIS_logmean) - 1) / n_tot;
+PSIS_sdlog = sqrt(PSIS_varlog)
+IS_sdlog_vec[model_idx]
+
+PSIS_ESS_prop = exp(2PSIS_logmean - PSIS_logmeansq)
+IS_ESS_prop[model_idx]
+
+
+tmp = collect(model_fits[model_idx].xmin)
+petab_probs[model_idx].prior(tmp)
+sum(logpdf.(Ref(Normal(0, 2)), tmp[1:end-1])) + sum(logpdf.(Ref(Normal(-1, 1)), tmp[end:end]))
+
+model_fits[model_idx].xmin
+methods(petab_probs[model_idx].prior)
+methods(petab_probs[model_idx].nllh)
+typeof(petab_probs[model_idx].prior)
+propertynames(petab_probs[model_idx].prior)
+propertynames(petab_probs[model_idx])
+
+
+# Subsampling IS with w = joint / proposal
+subsample_size = 10^5
+n_subsample = 10
+
+subsamples = [(k-1)*subsample_size+1:k*subsample_size for k in 1:n_subsample]
+IS_postprobs = exp.(IS_logests .- logsumexp(IS_logests))
+postprobs_vec = Vector{Float64}[];
+for subsample in subsamples
+    IS_logws = [
+        all_logws[subsample] for (all_logws, _) in IS_results
+    ]
+    IS_logests = logsumexp.(IS_logws) .- log(subsample_size);
+    push!(postprobs_vec, exp.(IS_logests .- logsumexp(IS_logests)))
+end
+
+exp.(IS_logests .- logsumexp(IS_logests))
