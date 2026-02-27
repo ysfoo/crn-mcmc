@@ -24,8 +24,8 @@ sym2label = Dict(zip(Symbol.(parameters(models[end])), param_labels))
     d = nparams[model_idx]
     ps = parameters(models[model_idx])
 
-    INFDIR = joinpath("/scratch/punim0638/ysfoo/crn-mcmc/insect/output/data$(dir_idx)") # inference result directory
-
+    INFDIR = joinpath(@__DIR__, "scratch_output/data$(dir_idx)");
+    
     mcmc_fname = joinpath(INFDIR, "gm_MCMC_model$(model_idx).jld2")
     @nowarn_load mcmc_fname chn
     trace = chn.value[:,1:d,1].data;

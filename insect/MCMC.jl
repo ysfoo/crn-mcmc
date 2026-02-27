@@ -6,7 +6,7 @@ dir_idx = parse(Int64, ARGS[1])
 genmodel_idx = feasible_idxs[dir_idx]
 
 OUTDIR = mkpath(joinpath(@__DIR__, "output", "data$(dir_idx)")) # output directory
-MCMCDIR = joinpath("/scratch/punim0638/ysfoo/crn-mcmc/insect/output/data$(dir_idx)") # MCMC trace directory
+INFDIR = joinpath(@__DIR__, "scratch_output/data$(dir_idx)");
 
 # Fetch packages.
 using PEtab, OrdinaryDiffEq
@@ -20,7 +20,7 @@ using AdvancedHMC, Bijectors, LinearAlgebra, LogDensityProblems, LogDensityProbl
 data = all_data[genmodel_idx];
 
 @showprogress for model_idx in 1:n_models 
-    mcmc_fname = joinpath(MCMCDIR, "MCMC_model$(model_idx).jld2")
+    mcmc_fname = joinpath(INFDIR, "MCMC_model$(model_idx).jld2")
     isfile(mcmc_fname) && continue
 
     pmodel = create_petab_model(models[model_idx], data, u0)

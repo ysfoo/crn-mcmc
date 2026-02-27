@@ -7,7 +7,7 @@ include(joinpath(@__DIR__, "../gaussian_mixtures.jl"));
 dir_idx = 2
 genmodel_idx = feasible_idxs[dir_idx]
 
-INFDIR = joinpath("/scratch/punim0638/ysfoo/crn-mcmc/insect/output/data$(dir_idx)") # inference result directory
+INFDIR = joinpath(@__DIR__, "scratch_output/data$(dir_idx)");
 
 # Fetch packages.
 using Distributions, LinearAlgebra, LogExpFunctions, Optim, OrdinaryDiffEq, PDMats, PEtab, Random
