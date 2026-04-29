@@ -25,26 +25,46 @@ end
 
 function plot_pairs(
     states, μs=[], Σs=[]; 
-    title=nothing, figsize=nothing, axis_kwargs=(;),
+    title=nothing, titlesize=16,
+    figsize=nothing, layout=nothing, skip_upper=false,
+    axis_kwargs=(;), hist_axis_kwargs=(;yscale=log10),
     scatter_kwargs=(;markersize=5, alpha=0.5), 
+    hexbin_kwargs=nothing,
     ellipse_kwargs=(;),
-    hist_kwargs=(;),
+    hist_kwargs=(;), bins_vec=nothing
 )
     n_dim = length(states[1])
+    δs = std.(eachrow(reduce(hcat, states))) / 3
     if isnothing(figsize)
         figsize = (120*n_dim, 120*n_dim)
     end
-    f = Figure(size=figsize)
-    for i1 in 1:n_dim
-        for i2 in 1:n_dim
+    if isnothing(layout)
+        f = Figure(size=figsize)
+    else
+        f = layout
+    end
+    for i2 in 1:n_dim
+        for i1 in 1:n_dim
+            if skip_upper && i1 > i2
+                continue
+            end
             if i1 == i2
-                ax = Axis(f[i2,i1]; axis_kwargs..., yscale=log10)
-                hist!(getindex.(states, i1); bins=50, normalization=:pdf, hist_kwargs...)
+                ax = Axis(f[i2,i1]; hist_axis_kwargs...)
+                δ = δs[i1]
+                v = getindex.(states, i1)
+                bins = bins_vec === nothing ? (fld(minimum(v), δ):cld(maximum(v), δ)) .* δ : bins_vec[i1]
+                hist!(v; bins=bins, normalization=:pdf, hist_kwargs...)
             else
                 ax = Axis(f[i2,i1]; axis_kwargs...)
-                scatter!(
-                    getindex.(states, i1), getindex.(states, i2); scatter_kwargs...
-                )
+                if hexbin_kwargs === nothing
+                    scatter!(
+                        getindex.(states, i1), getindex.(states, i2); scatter_kwargs...
+                    )
+                else
+                    hexbin!(
+                        getindex.(states, i1), getindex.(states, i2), cellsize=(0.2*sqrt(3)*δs[i1], 0.4*δs[i2]); hexbin_kwargs...
+                    )
+                end
                 autolimits!(ax)
                 ax_limits = ax.finallimits[]
                 for (μ, Σ) in zip(μs, Σs)
@@ -72,7 +92,28 @@ function plot_pairs(
         end
     end
     if !isnothing(title) && length(title) > 0
-        Label(f[0,:], title, fontsize=16)
+        Label(f[0,:], title, font=:bold, fontsize=titlesize)
     end
     return f
+end
+
+
+# Make square root scale work for negative values
+function symsqrt(x)
+	sign(x)*sqrt(abs(x))
+end
+
+function Makie.inverse_transform(::typeof(symsqrt))
+    x -> sign(x)*x*x
+end
+
+Makie.defaultlimits(::typeof(symsqrt)) = (0.0, 1.0)
+
+Makie.defined_interval(::typeof(symsqrt)) = Makie.OpenInterval(-Inf, Inf)
+
+function get_pos_sqrt_ticks(maxval)
+	all_ticks = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1., 2., 5., 10., 20., 50., 100.];
+	upper_filter = all_ticks .<= maxval
+	lower_filter = all_ticks .>= 0.02*maxval
+	return [0.0; all_ticks[upper_filter .& lower_filter]]
 end

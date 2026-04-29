@@ -2,20 +2,13 @@
 include(joinpath(@__DIR__, "setup.jl"));
 include(joinpath(@__DIR__, "../gaussian_mixtures.jl"));
 
-# This script takes one command-line argument, which is the index of `feasible_idxs`.
-dir_idx = parse(Int64, ARGS[1])
-# dir_idx = 2
-genmodel_idx = feasible_idxs[dir_idx]
+# This script takes one command-line argument, which is the seed.
+seed = parse(Int64, ARGS[1])
 
-OUTDIR = joinpath(@__DIR__, "output/data$(dir_idx)");
+INFDIR = joinpath(@__DIR__, "output/seed$(seed)");
 
 # Fetch packages.
-using Distributions, LinearAlgebra, LogExpFunctions, Optim, OrdinaryDiffEq, PDMats, PEtab, Random
-using JLD2, ProgressMeter
-using AdvancedHMC, Bijectors, BridgeSampling, LogDensityProblems, LogDensityProblemsAD, MCMCChains, PSIS, Turing
-
-@load joinpath(@__DIR__, "data.jld2") all_data;
-data = all_data[genmodel_idx];
+using BridgeSampling, MCMCChains, Turing
 
 # `bridge_idxs` are used in bridge sampling identity as samples drawn from posterior
 # `fit_idxs` are used to fit proposal distribution
@@ -25,7 +18,7 @@ function bridge_sampling(target, d, chn, bridge_idxs, fit_idxs)
     samples = reshape(trace, d, :)    
     logp_samples = extract_logp(chn);
     logp_func(x) = begin
-        res = target.logtarget(x)
+        res = LogDensityProblems.logdensity(target, x)
         isnan(res) ? -Inf : res
     end
 
@@ -60,28 +53,23 @@ function bridge_sampling(target, d, chn, bridge_idxs, fit_idxs)
     return LML_mix
 end
 
-# 5 chains, 15k samples total
-# Use 5k as bridge_idxs, 10k as fit_idxs
-bridge_idxs = filter(x -> mod(x, 3) == 0, 1:15000)
-fit_idxs = filter(x -> mod(x, 3) != 0, 1:15000)
+# 5 chains, 100k samples total
+# Use 90k as bridge_idxs, 10k as fit_idxs
+bridge_idxs = filter(x -> mod(x, 10) != 0, 1:10^5)
+fit_idxs = filter(x -> mod(x, 10) == 0, 1:10^5)
 
-for model_idx in 1:n_models
-    # println("Model $(model_idx)")
-    fname = joinpath(OUTDIR, "BS_model$(model_idx).jld2")
-    flush(stdout); flush(stderr);
+for model_sym in model_syms
+    fname = joinpath(INFDIR, "BS_$(model_sym).jld2")
+    target = target_dict[model_sym]
+    d = nparam_dict[model_sym]
 
-    d = nparams[model_idx]
-    pmodel = create_petab_model(models[model_idx], data, u0)
-    petab_prob = PEtabODEProblem(pmodel; odesolver=ODESolver(Rodas5P(), verbose=false))
-    target = PEtabLogDensity(petab_prob)
+    mcmc_fname = joinpath(INFDIR, "chains_$(model_sym).jld2");
+    @load mcmc_fname chn;
 
-    mcmc_fname = joinpath(OUTDIR, "chains_model$(model_idx).jld2");
-    @nowarn_load mcmc_fname chn ess_df;
-    min_ess = round(Int, minimum(ess_df.nt.ess))
-
-    Random.seed!(dir_idx*n_models + model_idx)
+    Random.seed!(seed + (model_sym |> String |> hash))
     timed_res = @timed bridge_sampling(target, d, chn, bridge_idxs, fit_idxs)
-    cv = error_estimate(timed_res.value).cv
-    @info "Model $model_idx" round(timed_res.time, digits=2) round(cv, digits=6) min_ess
     @save fname timed_res
+
+    @info String(model_sym) timed_res.time timed_res.value.value error_estimate(timed_res.value; n_chains=5).cv
+    flush(stderr)
 end

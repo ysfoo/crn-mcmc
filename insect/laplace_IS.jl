@@ -6,8 +6,6 @@ dir_idx = parse(Int64, ARGS[1])
 # dir_idx = 2
 genmodel_idx = feasible_idxs[dir_idx]
 
-INFDIR = joinpath(@__DIR__, "scratch_output/data$(dir_idx)");
-
 # Fetch packages.
 using Distributions, LinearAlgebra, LogExpFunctions, Optim, OrdinaryDiffEq, PDMats, PEtab, Random
 using JLD2, ProgressMeter
@@ -27,21 +25,20 @@ function laplace_IS(target, MAP, hess, n_samples; df=4)
     samples = rand(proposal, n_samples)
 
     logps = target.logtarget.(eachcol(samples))
+    logps[findall(isnan, logps)] .= -Inf
     logqs = logpdf.(Ref(proposal), eachcol(samples))
     logws = logps .- logqs
 
     psis_res = psis(logws; normalize=false, warn=false)
 
     return (
-        logps = logps,
-        logqs = logqs,
         psis_logws = psis_res.log_weights,
         pareto_shape = psis_res.pareto_shape
     )
 end
 
 for model_idx in 1:n_models
-    fname = joinpath(INFDIR, "laplace_IS_model$(model_idx).jld2")
+    fname = joinpath(OUTDIR, "laplace_IS_model$(model_idx).jld2")
     flush(stdout); flush(stderr);
     # isfile(fname) && continue
 
@@ -59,12 +56,25 @@ for model_idx in 1:n_models
     println("Model $(model_idx), $(timed_res.time/60) min")
 end
 
+exit()
+
 # Test
 # model_idx = 20;
-# fname = joinpath(INFDIR, "laplace_IS_model$(model_idx).jld2");
+# fname = joinpath(OUTDIR, "laplace_IS_model$(model_idx).jld2");
 # @load fname timed_res;
 # timed_res.time
 # N = length(timed_res.value.psis_logws);
 # logsumexp(timed_res.value.psis_logws) - log(N)
 # compute_ess(timed_res.value.psis_logws)
 # timed_res.value.pareto_shape
+
+for dir_idx in 1:n_feasible
+    OUTDIR = joinpath(@__DIR__, "output/data$(dir_idx)");
+    n_isnan = 0
+    for model_idx in 1:n_models
+        fname = joinpath(OUTDIR, "laplace_IS_model$(model_idx).jld2")
+        @load fname timed_res
+        n_isnan += sum(isnan, timed_res.value.psis_logws)
+    end
+    display((dir_idx, n_isnan))
+end

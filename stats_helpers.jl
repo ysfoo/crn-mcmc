@@ -1,4 +1,4 @@
-using LinearAlgebra, LogExpFunctions
+using LinearAlgebra, LogExpFunctions, MCMCChains
 using Distributions, Random, StatsBase
 
 
@@ -9,10 +9,10 @@ end
 
 
 # Sample categorical distribution using {i/n}_{i=0}^{n-1} instead of drawing from Unif(0, 1)
-function stratified_sampling(ws, n=length(ws))
+function stratified_sampling(ws, n=length(ws); rng=Random.default_rng())
     edges = cumsum(ws ./ sum(ws))
     edges[end] = 1.0
-    u = (rand(n) .+ (0:(n-1))) ./ n
+    u = (rand(rng, n) .+ (0:(n-1))) ./ n
     idxs = searchsortedfirst.(Ref(edges), u)
     return idxs
 end
@@ -56,3 +56,43 @@ function sortview(v; top=5)
     top = min(top, length(v))
     return sort(collect(enumerate(v)), by=last, rev=true)[1:top]
 end
+
+
+# Turing sometimes returns Chains with :logjoint or :lp for log ldproberior
+function extract_logp(chn::Chains)
+    sym = :logjoint ∈ chn.name_map.internals ? :logjoint : :lp
+    return collect(vec(chn[sym]))
+end
+
+# LogDensityProblem for Distribution
+
+using Distributions, LogDensityProblems, LogDensityProblemsAD
+import ForwardDiff
+
+LogDensityProblems.capabilities(::Type{<:Distribution}) = LogDensityProblems.LogDensityOrder{0}()
+LogDensityProblems.dimension(dist::Distribution)      = length(dist)
+LogDensityProblems.logdensity(dist::Distribution, x)  = logpdf(dist, x)
+
+make_ldprob(dist::Distribution) = ADgradient(:ForwardDiff, dist)
+
+
+# LogDensityProblem for generic logpdf
+
+struct BasicLDP{F}
+    f::F
+    d::Int
+end
+
+LogDensityProblems.capabilities(::Type{<:BasicLDP}) = LogDensityProblems.LogDensityOrder{0}()
+LogDensityProblems.dimension(ldp::BasicLDP)      = ldp.d
+LogDensityProblems.logdensity(ldp::BasicLDP, x)  = ldp.f(x)
+
+# LogDensityProblem for tuple of distributions
+
+struct PriorLogDensity{V<:AbstractVector{<:UnivariateDistribution}}
+    dists::V
+end
+
+LogDensityProblems.logdensity(p::PriorLogDensity, x) = sum(logpdf(p.dists[i], x[i]) for i in eachindex(p.dists))
+LogDensityProblems.dimension(p::PriorLogDensity) = length(p.dists)
+LogDensityProblems.capabilities(::Type{<:PriorLogDensity}) = LogDensityProblems.LogDensityOrder{0}()

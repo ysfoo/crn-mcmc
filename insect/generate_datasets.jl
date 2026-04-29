@@ -194,5 +194,5 @@ begin
     save(joinpath(@__DIR__, "imgs/all_data.png"), f)
 end
 
-@save "params.jld2" tuned_params;
-@save "data.jld2" all_data;
+@save joinpath(@__DIR__, "params.jld2") tuned_params;
+@save joinpath(@__DIR__, "data.jld2") all_data;

@@ -12,6 +12,7 @@
 *.slurm
 
 # Media output
+coral/imgs/
 insect/imgs/
 smc/imgs/
 
