@@ -144,6 +144,7 @@ function orig_AMIS(target, MAP, hess; Kmax=50, df=4)
         gm_vec = gm_vec,
         # all_logps = all_logps,
         # all_logqs = all_logqs,
+        all_samples = all_samples,
         psis_logws = psis_res.log_weights,
         pareto_shape = psis_res.pareto_shape
     )

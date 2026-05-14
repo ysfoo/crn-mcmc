@@ -97,16 +97,16 @@ function sqhdist_func(dist1::MvNormal, dist2::MvNormal)
 end
 
 
-function revKL_func(dist1::MvNormal, dist2::MvNormal)
-    μ1 = dist1.μ
-    μ2 = dist2.μ
-    Σ1 = dist1.Σ
-    Σ2 = dist2.Σ
-    d = length(μ1)
-    Δμ = μ1 - μ2   
+# function revKL_func(dist1::MvNormal, dist2::MvNormal)
+#     μ1 = dist1.μ
+#     μ2 = dist2.μ
+#     Σ1 = dist1.Σ
+#     Σ2 = dist2.Σ
+#     d = length(μ1)
+#     Δμ = μ1 - μ2   
     
-    return 0.5 * (tr(Σ2 \ Σ1) - d + dot(Δμ, Σ2 \ Δμ) + logdet(Σ2) - logdet(Σ1))
-end
+#     return 0.5 * (tr(Σ2 \ Σ1) - d + dot(Δμ, Σ2 \ Δμ) + logdet(Σ2) - logdet(Σ1))
+# end
 
 
 function init_dists(target, prior_sampler, prior_means, prior_vars, nruns, Kmax, logp_thres; 
@@ -122,14 +122,28 @@ function init_dists(target, prior_sampler, prior_means, prior_vars, nruns, Kmax,
 
     all_dists = reduce(vcat, getproperty.(pf_res_vec, :fit_distributions))
     all_logps = reduce(vcat, map(res->res.optim_trace.log_densities, pf_res_vec))
-    all_logps[findall(isnan, all_logps)] .= -Inf
+    has_finite_logp = findall(isfinite, all_logps)
+    sort_order = sortperm(all_logps[has_finite_logp], rev=true)
+    all_dists = all_dists[has_finite_logp][sort_order]
+    all_logps = all_logps[has_finite_logp][sort_order]
     n_all = length(all_dists)
     max_logp = maximum(all_logps)
 
-    viable_idxs = findall(
+    cand_idxs = findall(
         i->max_logp - all_logps[i] <= logp_thres && all(diag(all_dists[i].Σ) .< prior_vars) && all(abs.(all_dists[i].μ .- prior_means) .< 4 .* sqrt.(prior_vars)), 
         1:n_all
     )
+    viable_idxs = Int64[]
+    for c in cand_idxs
+        is_viable = true
+        for v in viable_idxs
+            if sqhdist_func(all_dists[c], all_dists[v]) <= 0.1
+                is_viable = false
+                break
+            end
+        end
+        is_viable && push!(viable_idxs, c)
+    end
     viable_dists = all_dists[viable_idxs]    
     viable_logps = all_logps[viable_idxs]
     n_viable = length(viable_idxs)
@@ -176,7 +190,7 @@ function init_dists(target, prior_sampler, prior_means, prior_vars, nruns, Kmax,
     #     length(keep_dists) == Kmax && break
     # end;
 
-    return keep_dists, viable_dists
+    return viable_dists, keep_dists
 end
 
 

@@ -20,7 +20,7 @@ OUTDIR = joinpath(@__DIR__, "output", "data$(dir_idx)") # output directory
 @load "$OUTDIR/MAP_hess.jld2" MAP_hessians;
 
 
-function orig_AMIS(target, MAP, hess; Kmax=50, df=4)
+function orig_AMIS(target, MAP, hess; Kmax=50, df=4, n_out=10000)
     d = target.dim
     Σ = inv(PDMat(hermitianpart!(hess)))
     q_init = MvTDist(df, MAP, Σ)
@@ -148,18 +148,18 @@ function orig_AMIS(target, MAP, hess; Kmax=50, df=4)
     all_logws = all_logps .- all_logqs;
 
     psis_res = psis(all_logws; normalize=false, warn=false);
+    psis_logws = psis_res.log_weights
 
     return (
         incr_vec = incr_vec,
         gm_vec = gm_vec,
-        # all_logps = all_logps,
-        # all_logqs = all_logqs,
-        psis_logws = psis_res.log_weights,
+        unweighted_samples = [all_samples[:,idx] for idx in stratified_sampling(exp.(psis_logws .- maximum(psis_logws)), n_out)],
+        psis_logws = psis_logws,
         pareto_shape = psis_res.pareto_shape
     )
 end
 
-# model_idx = 64
+# model_idx = 63
 # begin
 for model_idx in 1:n_models 
     println("Model $(model_idx)")
@@ -188,7 +188,7 @@ exit()
 dir_idx = 2
 OUTDIR = joinpath(@__DIR__, "output/data$(dir_idx)");
 model_idx = 64
-fname = joinpath(OUTDIR, "chisq_AMIS_model$(model_idx).jld2")
+fname = joinpath(OUTDIR, "orig_AMIS_model$(model_idx).jld2")
 
 @load fname timed_res;
 timed_res.time

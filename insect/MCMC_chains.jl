@@ -80,7 +80,6 @@ end
 
 for model_idx in 1:n_models
     ran = main(model_idx);
-    ran && break
 end
 
 # model_idx = parse(Int64, ARGS[1])

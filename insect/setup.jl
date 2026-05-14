@@ -53,7 +53,7 @@ nparams = length.(combs) .+ 4
 
 # For ODE simulaion
 u0 = [:E => 0.0, :L => 0.0, :A => 3.0]
-n_d = length(u0)
+n_u = length(u0)
 t_end = 10.
 end
 

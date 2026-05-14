@@ -12,9 +12,9 @@
 *.slurm
 
 # Media output
-coral/imgs/
-insect/imgs/
-smc/imgs/
+*.png
+*.mp4
+*.gif
 
 # Archived files
 elijah_archive/

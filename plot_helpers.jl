@@ -76,6 +76,7 @@ function plot_pairs(
             if i1 ∈ [1, n_dim]
                 ax.yaxisposition = i1 == 1 ? :left : :right
                 ax.yticklabelsize = 12
+                ax.yticksvisible = ax.yticklabelsvisible = i1 == 1 || !skip_upper
             else
                 ax.yticksvisible = false
                 ax.yticklabelsvisible = false
@@ -85,6 +86,7 @@ function plot_pairs(
                 ax.xaxisposition = i2 == 1 ? :top : :bottom
                 ax.xticklabelrotation = π/4
                 ax.xticklabelsize = 12
+                ax.xticksvisible = ax.xticklabelsvisible = i2 == n_dim || !skip_upper
             else
                 ax.xticksvisible = false
                 ax.xticklabelsvisible = false

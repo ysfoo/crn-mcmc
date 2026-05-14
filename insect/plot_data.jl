@@ -32,14 +32,25 @@ function make_plot!(idx, models, u0, param_sets, all_data)
     make_plot!(models[idx], u0, param_sets[idx], all_data[idx])
 end
 
-f = Figure(size=(900, 1200));
+f = Figure(size=(1080, 1440));
 to_exclude = Symbol.(parameters(models[1]))
 for (i, midx) in enumerate(feasible_idxs)
     ps = parameters(models[midx])
     p_title = join([sym2label[p].s for p in Symbol.(ps) if p ∉ to_exclude], ", ")
     println(p_title)
-    ax = Axis(f[cld(i, 5), mod1(i, 5)], title=latexstring(p_title), titlesize=17);
+    ax = Axis(
+        f[cld(i, 5), mod1(i, 5)],
+        title=latexstring(p_title), titlesize=18
+    );
     make_plot!(midx, models, u0, tuned_params, all_data)
+    ax.xticklabelsvisible = i >= 40
+    if i >= 40
+        ax.xlabel = "Time (a.u.)"
+        ax.xlabelsize = 18
+    end
+    if i == 40
+        ax.alignmode=Mixed(bottom=-42)
+    end
 end
 Legend(
     # f[end+1,:], 
@@ -56,7 +67,7 @@ Legend(
 Label(f[0,:], "Synthetic datasets (population size against time)", font=:bold, fontsize=20);
 
 for i in 1:8
-    rowgap!(f.layout, i, 5)
+    rowgap!(f.layout, i, 12)
 end
 display(f);
 

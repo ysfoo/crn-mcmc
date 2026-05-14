@@ -19,8 +19,10 @@ end
 
 
 # Bisection search for a monotonic function
-function bisection_search(trg, func, lo, hi; tol=1e-6)
-    is_increasing = func(hi) >= func(lo)
+function bisection_search(trg, func, lo, hi; tol=1e-10, is_increasing = func(hi) >= func(lo))
+    (is_increasing == (func(hi) < trg)) && return hi
+    (is_increasing == (func(lo) > trg)) && return lo    
+        
     left, right = lo, hi
     while right - left > tol
         mid = (left + right) / 2

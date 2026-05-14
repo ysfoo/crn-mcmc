@@ -19,16 +19,29 @@ function logistic_sol(θpos, t)
     return K * C0 / (C0 + (K - C0) * exp(-r * t))
 end
 
-
 function gompertz_sol(θpos, t)
     r, K, C0, _ = θpos
     return K * exp(log(C0 / K) * exp(-r * t))
 end
 
-
 function richards_sol(θpos, t)
     r, K, C0, β, _ = θpos
     return K / (1 + ((K / C0)^β - 1) * exp(-r * β * t))^(1 / β)
+end
+
+function logistic_inv(θpos, C)
+    r, K, C0, _ = θpos
+    return (1 / r) * log(C * (K - C0) / (C0 * (K - C)))
+end
+
+function gompertz_inv(θpos, C)
+    r, K, C0, _ = θpos
+    return (1 / r) * log(log(C0 / K) / log(C / K))
+end
+
+function richards_inv(θpos, C)
+    r, K, C0, β, _ = θpos
+    return (1 / (r * β)) * log(((K / C0)^β - 1) / ((K / C)^β - 1))
 end
 
 
@@ -107,6 +120,12 @@ solfunc_dict = Dict(
     :logistic => logistic_sol,
     :gompertz => gompertz_sol,
     :richards => richards_sol,
+);
+
+invfunc_dict = Dict(
+    :logistic => logistic_inv,
+    :gompertz => gompertz_inv,
+    :richards => richards_inv,
 );
 
 target_dict = Dict(

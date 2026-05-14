@@ -19,7 +19,7 @@ OUTDIR = joinpath(@__DIR__, "output", "data$(dir_idx)") # output directory
 @nowarn_load "$OUTDIR/MAP.jld2" model_fits;
 @load "$OUTDIR/MAP_hess.jld2" MAP_hessians;
 
-function laplace_IS(target, MAP, hess, n_samples; df=4)
+function laplace_IS(target, MAP, hess, n_samples; df=4, n_out=10000)
     Σ = inv(PDMat(hermitianpart!(hess)))
     proposal = MvTDist(df, MAP, Σ)
     samples = rand(proposal, n_samples)
@@ -29,14 +29,18 @@ function laplace_IS(target, MAP, hess, n_samples; df=4)
     logqs = logpdf.(Ref(proposal), eachcol(samples))
     logws = logps .- logqs
 
-    psis_res = psis(logws; normalize=false, warn=false)
+    psis_res = psis(logws; normalize=false, warn=false);
+    psis_logws = psis_res.log_weights
 
     return (
-        psis_logws = psis_res.log_weights,
+        unweighted_samples = [samples[:,idx] for idx in stratified_sampling(exp.(psis_logws .- maximum(psis_logws)), n_out)],
+        psis_logws = psis_logws,
         pareto_shape = psis_res.pareto_shape
     )
 end
 
+# model_idx = 63
+# begin
 for model_idx in 1:n_models
     fname = joinpath(OUTDIR, "laplace_IS_model$(model_idx).jld2")
     flush(stdout); flush(stderr);

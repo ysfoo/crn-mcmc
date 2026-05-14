@@ -1,3 +1,5 @@
+### Set all variables named `LOAD_XXX` to false to compute outputs from evidence estimation, instead of loading saved results.
+
 include(joinpath(@__DIR__, "setup.jl"));
 include(joinpath(@__DIR__, "../gaussian_mixtures.jl"));
 include(joinpath(@__DIR__, "../plot_helpers.jl"));
@@ -45,16 +47,16 @@ hist(sqrt.(vec(var_ratios)), bins=0:0.1:1)
 sum(abs.(sqrt.(vec(var_ratios)) .- 0.55) .< 0.05)
 1401/2816
 
-# Posterior variance
+# Effective sample sizes
 ess_fname = joinpath(@__DIR__, "output/ess.jld2");
 LOAD_ESS = true
 if LOAD_ESS
-    @load ess_fname LIS_essmat orig_essmat chisq_essmat chisq_khatmat
+    @load ess_fname LIS_essmat orig_essmat rAMIS_essmat rAMIS_khatmat
 else
     LIS_essmat = Matrix{Float64}(undef, n_feasible, n_models);
     orig_essmat = Matrix{Float64}(undef, n_feasible, n_models);
-    chisq_essmat = Matrix{Float64}(undef, n_feasible, n_models);
-    chisq_khatmat = Matrix{Float64}(undef, n_feasible, n_models);
+    rAMIS_essmat = Matrix{Float64}(undef, n_feasible, n_models);
+    rAMIS_khatmat = Matrix{Float64}(undef, n_feasible, n_models);
     @showprogress for dir_idx in 1:n_feasible
         OUTDIR = joinpath(@__DIR__, "output/data$(dir_idx)");
         for model_idx in 1:n_models
@@ -66,25 +68,25 @@ else
             fname = "$OUTDIR/orig_AMIS_model$model_idx.jld2"
             @load fname timed_res
             orig_essmat[dir_idx, model_idx] = compute_ess(timed_res.value.psis_logws)
-            fname = "$OUTDIR/chisq_AMIS_model$model_idx.jld2"
+            fname = "$OUTDIR/robust_AMIS_model$model_idx.jld2"
             @load fname timed_res
-            chisq_essmat[dir_idx, model_idx] = compute_ess(timed_res.value.psis_logws)
-            chisq_khatmat[dir_idx, model_idx] = timed_res.value.pareto_shape
+            rAMIS_essmat[dir_idx, model_idx] = compute_ess(timed_res.value.psis_logws)
+            rAMIS_khatmat[dir_idx, model_idx] = timed_res.value.pareto_shape
         end
     end
-    @save ess_fname LIS_essmat orig_essmat chisq_essmat chisq_khatmat
+    @save ess_fname LIS_essmat orig_essmat rAMIS_essmat rAMIS_khatmat
 end
 
 # @showprogress for dir_idx in 1:n_feasible
 #     OUTDIR = joinpath(@__DIR__, "output/data$(dir_idx)");
 #     for model_idx in 1:n_models
-#         fname = "$OUTDIR/chisq_AMIS_model$model_idx.jld2"
+#         fname = "$OUTDIR/robust_AMIS_model$model_idx.jld2"
 #         @load fname timed_res
-#         chisq_khatmat[dir_idx, model_idx] = timed_res.value.pareto_shape
+#         rAMIS_khatmat[dir_idx, model_idx] = timed_res.value.pareto_shape
 #     end
 # end
 
-# @save ess_fname LIS_essmat orig_essmat chisq_essmat chisq_khatmat
+# @save ess_fname LIS_essmat orig_essmat rAMIS_essmat rAMIS_khatmat
 
 MCMCstats_fname = joinpath(@__DIR__, "output/MCMCstats.jld2");
 LOAD_MCMCSTATS = true;
@@ -106,20 +108,35 @@ else
     end
     @save MCMCstats_fname MCMC_miness MCMC_maxrhat MCMC_times
 end
+
 MCMC_essmat = reduce(hcat, MCMC_miness)';
+summarystats((MCMC_times ./ 60) .|> sum)
 
 heatmap(MCMC_essmat)
+
+# OUTDIR = joinpath(@__DIR__, "output/data25")
+# for model_idx in 1:n_models
+#     fname = joinpath(OUTDIR, "chains_model$(model_idx).jld2");
+#     @load fname chn
+#     display(chn.info.stop_time .- chn.info.start_time)
+#     display(diff(sort(chn.info.start_time)))
+#     break
+# end
+
+# sum(MCMC_times[25]) / 60
+# 2*24+17 # job wall clock time
+# 7*24+17 # cpu utilized
 
 logZs_fname = joinpath(@__DIR__, "output/logZs.jld2");
 LOAD_LOGZS = true
 if LOAD_LOGZS
-    @load logZs_fname all_times BIC_logZvecs LIS_logZvecs orig_logZvecs chisq_logZvecs BS_logZvecs
+    @load logZs_fname all_times BIC_logZvecs LIS_logZvecs orig_logZvecs rAMIS_logZvecs BS_logZvecs
 else
     all_times = Vector{Float64}[];
     BIC_logZvecs = [Float64[] for _ in 1:n_feasible];
     LIS_logZvecs = [Float64[] for _ in 1:n_feasible];
     orig_logZvecs = [Float64[] for _ in 1:n_feasible];
-    chisq_logZvecs = [Float64[] for _ in 1:n_feasible];
+    rAMIS_logZvecs = [Float64[] for _ in 1:n_feasible];
     BS_logZvecs = [Float64[] for _ in 1:n_feasible];
 
     @showprogress for dir_idx in 1:n_feasible
@@ -127,7 +144,7 @@ else
         hess_time = 0.
         LIS_time = 0.
         orig_time = 0.
-        chisq_time = 0.
+        rAMIS_time = 0.
         chains_time = 0.
         BS_time = 0.
 
@@ -165,13 +182,13 @@ else
             logp_orig = logsumexp(logws) - log(N)
             push!(orig_logZvecs[dir_idx], logp_orig)
 
-            fname = "$OUTDIR/chisq_AMIS_model$model_idx.jld2"
+            fname = "$OUTDIR/robust_AMIS_model$model_idx.jld2"
             @load fname timed_res
-            chisq_time += timed_res.time / 60
+            rAMIS_time += timed_res.time / 60
             logws = timed_res.value.psis_logws;
             N = length(logws);
-            logp_chisq = logsumexp(logws) - log(N)
-            push!(chisq_logZvecs[dir_idx], logp_chisq)
+            logp_rAMIS = logsumexp(logws) - log(N)
+            push!(rAMIS_logZvecs[dir_idx], logp_rAMIS)
 
             fname = "$OUTDIR/chains_model$model_idx.jld2"
             @load fname chn
@@ -183,22 +200,18 @@ else
             push!(BS_logZvecs[dir_idx], timed_res.value.value)
         end
 
-        # @info "Data $dir_idx time (min)" MAP_time MAP_time+hess_time+LIS_time MAP_time+hess_time+orig_time chisq_time chains_time BS_time
-        times = [MAP_time, MAP_time+hess_time+LIS_time, MAP_time+hess_time+orig_time, chisq_time, chains_time+BS_time]
+        # @info "Data $dir_idx time (min)" MAP_time MAP_time+hess_time+LIS_time MAP_time+hess_time+orig_time rAMIS_time chains_time BS_time
+        times = [MAP_time, MAP_time+hess_time+LIS_time, MAP_time+hess_time+orig_time, rAMIS_time, chains_time+BS_time]
         
         push!(all_times, times)
         flush(stderr)
     end
-    @save logZs_fname all_times BIC_logZvecs LIS_logZvecs orig_logZvecs chisq_logZvecs BS_logZvecs
+    @save logZs_fname all_times BIC_logZvecs LIS_logZvecs orig_logZvecs rAMIS_logZvecs BS_logZvecs
 end
 
 hrs_mat = reduce(hcat, all_times) ./ 60; # method x datasets
 
-summarystats(hrs_mat[1,:]) # BIC
-summarystats(hrs_mat[2,:]) # LIS
-summarystats(hrs_mat[3,:]) # orig AMIS
-summarystats(hrs_mat[4,:]) # new AMIS
-summarystats(hrs_mat[5,:]) # BS
+hrs_mat[5, 25] / hrs_mat[4, 25]
 
 function calc_tvd(logZvec1, logZvec2)
     logp1 = exp.(logZvec1 .- logsumexp(logZvec1))
@@ -208,57 +221,381 @@ end
 
 LIS_errors = reduce(vcat, LIS_logZvecs .- BS_logZvecs);
 orig_errors = reduce(vcat, orig_logZvecs .- BS_logZvecs);
-chisq_errors = reduce(vcat, chisq_logZvecs .- BS_logZvecs);
-
-length(chisq_logZvecs)
-length(MCMC_maxrhat)
-plot_order = sortperm(abs.(chisq_errors));
-
-scatter(
-    vec(chisq_essmat')[plot_order], reduce(vcat, MCMC_maxrhat)[plot_order],
-    color=chisq_errors[plot_order], colorrange=(-1.1, 1.1), colormap=:curl,
-    axis=(xscale=log10,)
-)
-
-scatter(vec(chisq_essmat')[plot_order], chisq_errors[plot_order])
-
-scatter(vec(chisq_khatmat')[plot_order], chisq_errors[plot_order])
-
-vec(chisq_essmat')[abs.(chisq_errors) .> 0.5]
-
-summarystats(chisq_essmat)
-sum(chisq_essmat .< 1e5)
-sum(chisq_essmat .< 1e4)
-
-sum(chisq_khatmat .> 0.9)
-sum(chisq_khatmat .> 1)
-
-
-quantile.(Ref(chisq_errors .|> abs), 0.05:0.05:0.95)
-mean(LIS_errors .|> abs .< 0.1)
-mean(orig_errors .|> abs .< 0.1)
-mean(chisq_errors .|> abs .< 0.1)
-
-mean(LIS_essmat .> 1e4)
-mean(orig_essmat .> 1e4)
-mean(chisq_essmat .> 1e4)
+rAMIS_errors = reduce(vcat, rAMIS_logZvecs .- BS_logZvecs);
 
 BIC_tvds = calc_tvd.(BIC_logZvecs, BS_logZvecs);
 LIS_tvds = calc_tvd.(LIS_logZvecs, BS_logZvecs);
 orig_tvds = calc_tvd.(orig_logZvecs, BS_logZvecs);
-chisq_tvds = calc_tvd.(chisq_logZvecs, BS_logZvecs);
-all_tvds = [BIC_tvds, LIS_tvds, orig_tvds, chisq_tvds];
+rAMIS_tvds = calc_tvd.(rAMIS_logZvecs, BS_logZvecs);
+all_tvds = [BIC_tvds, LIS_tvds, orig_tvds, rAMIS_tvds];
 
-summarystats(BIC_tvds)
-summarystats(LIS_tvds)
+pvecs_BIC = [exp.(logZvec .- logsumexp(logZvec)) for logZvec in BIC_logZvecs];
+pvecs_LIS = [exp.(logZvec .- logsumexp(logZvec)) for logZvec in LIS_logZvecs];
+pvecs_orig = [exp.(logZvec .- logsumexp(logZvec)) for logZvec in orig_logZvecs];
+pvecs_rAMIS = [exp.(logZvec .- logsumexp(logZvec)) for logZvec in rAMIS_logZvecs];
+pvecs_BS = [exp.(logZvec .- logsumexp(logZvec)) for logZvec in BS_logZvecs];
+
+
+summarystats(hrs_mat[1,:]) # BIC
+summarystats(hrs_mat[2,:]) # LIS
+summarystats(hrs_mat[3,:]) # orig AMIS
+summarystats(hrs_mat[4,:]) # new AMIS
+summarystats(hrs_mat[5,:]) # BS
+
+((MCMC_times .|> sum) |> mean) / 60 / mean(hrs_mat[5,:])
+
+length(rAMIS_logZvecs)
+length(MCMC_maxrhat)
+plot_order = sortperm(abs.(rAMIS_errors));
+
+scatter(
+    vec(rAMIS_essmat')[plot_order], reduce(vcat, MCMC_maxrhat)[plot_order],
+    color=rAMIS_errors[plot_order], colorrange=(-1.1, 1.1), colormap=:curl,
+    axis=(xscale=log10,)
+)
+
+scatter(vec(rAMIS_essmat')[plot_order], rAMIS_errors[plot_order])
+
+scatter(vec(rAMIS_khatmat')[plot_order], rAMIS_errors[plot_order])
+
+vec(rAMIS_essmat')[abs.(rAMIS_errors) .> 0.5]
+
+summarystats(rAMIS_essmat)
+sum(rAMIS_essmat .< 1e5)
+sum(rAMIS_essmat .< 1e4)
+
+sum(rAMIS_khatmat .> 0.9)
+sum(rAMIS_khatmat .> 1)
+
+
+quantile.(Ref(rAMIS_errors .|> abs), 0.05:0.05:0.95)
+mean(LIS_errors .|> abs .< 0.1)
+mean(orig_errors .|> abs .< 0.1)
+mean(rAMIS_errors .|> abs .< 0.1)
+
+mean(LIS_essmat .> 1e4)
+mean(orig_essmat .> 1e4)
+mean(rAMIS_essmat .> 1e4)
+
+# summarystats(BIC_tvds)
+# summarystats(LIS_tvds)
 summarystats(orig_tvds)
-summarystats(chisq_tvds)
+summarystats(rAMIS_tvds)
 
-scatter(reduce(vcat, eachrow(chisq_essmat)), chisq_errors)
 
-COLORS = [:grey; Makie.wong_colors()[[1, 3, 4, 2]]]
-method_names = ["BIC", "Laplace IS", "Standard AMIS", "Robust AMIS"];
+
+
+COLORS = [:grey60; Makie.wong_colors()[[1, 3, 4, 2]]];
+method_names = ["BIC", "Laplace IS", "Standard AMIS", "Robust AMIS", "Bridge sampling"];
 MARKERS = [:rect, :circle, :diamond, :xcross]
+
+all_tvds .|> maximum
+tvd_bins = 0:0.01:0.34
+tvd_hists = fit.(Histogram, all_tvds, Ref(tvd_bins));
+tvd_histmaxs = getproperty.(tvd_hists, :weights) .|> maximum
+tvd_heights = tvd_histmaxs ./ maximum(tvd_histmaxs)
+
+all_essvecs = [vec(LIS_essmat), vec(orig_essmat), vec(rAMIS_essmat)];
+extrema.(all_essvecs)
+ess_bins = logrange(1, 1e6, 31)[3:end]
+ess_hists = fit.(Histogram, all_essvecs, Ref(ess_bins));
+ess_histmaxs = getproperty.(ess_hists, :weights) .|> maximum
+ess_heights = ess_histmaxs ./ maximum(ess_histmaxs)
+
+begin
+    f = Figure(size=(1200, 1200))
+
+    cats = repeat(1:4, inner=n_feasible)
+
+    # ax11 = Axis(
+    #     f[1,1],
+    #     yticklabelsize=16,
+    #     limits=(nothing, (-0.01, nothing)),
+    #     ylabel="Total variation distance\nfrom bridge sampling", ylabelsize=18,
+    #     title="Discrepancy of posterior distributions\nfrom gold standard", titlesize=18,
+    #     # xticks=(1:4, ["BIC", "Laplace IS", "Standard AMIS", "Robust AMIS"]),
+    #     # xticklabelrotation=π/6, 
+    #     xticks=(1:4, ["BIC", "Laplace\nIS", "Standard\nAMIS", "Robust\nAMIS"]),
+    #     xticklabelsize=18, xgridvisible=true
+    # )
+
+    ax11 = Axis(
+        f[1,1],
+        yticklabelsize=16,
+        limits=(nothing, (-0.01, nothing)),
+        ylabel="Total variation distance\nfrom bridge sampling", ylabelsize=18,
+        title="Discrepancy of posterior distributions\nfrom gold standard", titlesize=18,
+        xlabel="Per-dataset runtime (hours)", xlabelsize=18,
+        xticklabelsize=16, 
+    )
+    
+    for i in 1:4
+        # rainclouds!(
+        #     fill(i, n_feasible), all_tvds[i],
+        #     color=COLORS[i],
+        #     plot_boxplots=false, 
+        #     jitter_width=0.2, markersize=6,
+        #     show_median=false, 
+        #     clouds=hist, cloud_width=0.7*tvd_heights[i], gap=0.0, dodge_gap=0.1, side_nudge=0.125, hist_bins=tvd_bins,
+        #     # clouds=violin, cloud_width=1, violin_limits=(0, Inf),
+            
+        # )
+        # hist!(
+        #     all_tvds[i], color=COLORS[i], 
+        #     scale_to=-0.8*tvd_heights[i], offset=i, 
+        #     direction=:x, bins=tvd_bins
+        # )
+        scatter!(
+            hrs_mat[i,:], all_tvds[i], alpha=0.8,
+            color=COLORS[i], marker=MARKERS[i], label=method_names[i],
+        )
+    end
+
+    axislegend(ax11, position=:rt, labelsize=18)
+
+    var_ratios_vec = reduce(vcat, eachrow(var_ratios))
+
+    ax12 = Axis(
+        f[1,2], 
+        title="Estimate error vs\nparameter identifiability", titlesize=18,
+        xlabel="Max posterior-to-prior SD ratio",
+        ylabel="Log-evidence error relative\nto bridge sampling",
+        xticklabelsize=16, yticklabelsize=16,
+        xlabelsize=18, ylabelsize=18,
+        # yscale=symsqrt, 
+        # yticks=(tick_vals, tick_labels),
+        limits=((0, 1.1), nothing)
+    )
+    lines!([0, 1.1], [0, 0], alpha=0.5, color=:black, linestyle=:dash)
+    func = identity
+    for (i, errs) in enumerate([LIS_errors, orig_errors, rAMIS_errors])
+        scatter!(
+            sqrt.(var_ratios_vec), errs,
+            markersize=6, alpha=0.4, color=COLORS[i+1], marker=MARKERS[i+1],
+        )
+    end
+
+    cats = repeat(1:3, inner=(n_feasible*n_models))
+
+    ax21 = Axis(
+        f[2,1],
+        yticks=(10 .^ (1:6), [L"10^{%$p}" for p in 1:6]),
+        yticklabelsize=16,
+        yscale=log10,
+        ylabel="Effective sample size", ylabelsize=18,
+        title="Effective sample size for\nimportance sampling methods", titlesize=18,
+        # xticks=(1:3, ["Laplace IS", "Standard AMIS", "Robust AMIS"]),
+        # xticklabelrotation=π/6,
+        xticks=(1:3, ["Laplace\nIS", "Standard\nAMIS", "Robust\nAMIS"]),
+        xticklabelsize=18, xgridvisible=true
+    )
+    
+    for i in 1:3
+        # rainclouds!(
+        #     fill(i, n_feasible*n_models), all_essvecs[i],
+        #     color=COLORS[i+1], markersize=2,
+        #     plot_boxplots=false, 
+        #     jitter_width=0.2,
+        #     show_median=false, 
+        #     clouds=hist, cloud_width=0.7*ess_heights[i], gap=0.0, dodge_gap=0.1, side_nudge=0.125, hist_bins=logrange(1, 1e6, 31)[4:end]
+        # )
+        hist!(
+            all_essvecs[i], color=COLORS[i+1], 
+            scale_to=-0.9*ess_heights[i], offset=i, 
+            direction=:x, bins=ess_bins
+        )
+    end
+
+    ax22 = Axis(
+        f[2,2], 
+        title="Effective sample size vs\nparameter identifiability", titlesize=18,
+        xlabel="Max posterior-to-prior SD ratio",
+        ylabel="Effective sample size",
+        xticklabelsize=16, yticklabelsize=16,
+        xlabelsize=18, ylabelsize=18,
+        yscale=log10, 
+        yticks=(10 .^ (1:6), [L"10^{%$p}" for p in 1:6]),
+        limits=((0, 1.1), nothing)
+    )
+    for (i, essmat) in enumerate([LIS_essmat, orig_essmat, rAMIS_essmat])
+        scatter!(
+            sqrt.(var_ratios_vec),
+            vec(essmat'), markersize=6, alpha=0.4, color=COLORS[i+1], marker=MARKERS[i+1],
+        )
+    end 
+
+    linkyaxes!(ax21, ax22)
+
+    colgap!(f.layout, 1, 25)
+
+    Legend(
+        f[:, 3],
+        [MarkerElement(color=COLORS[c], marker=MARKERS[c], markersize=8) for c in 2:4],
+        method_names[2:4],
+        labelsize=18, tellheight=false, 
+    )
+
+    for i in 1:4
+        label = ["A", "B", "C", "D"][i]
+        loc = [f[1, 1, TopLeft()], f[1, 2, TopLeft()], f[2, 1, TopLeft()], f[2, 2, TopLeft()]][i]
+        rpad = [32, 32, 32, 32][i]
+        Label(loc, label,
+            fontsize = 24, font = :bold,
+            padding = (0, rpad, 0, -30), # left, right, bottom, top
+            halign = :right, valign = :center,
+        )
+    end
+
+    g = GridLayout(f[3, :])
+    # Box(f[1:2, :], color=(:orange, 0.5))
+    # Box(f[3, :], color=(:red, 0.5))
+    for (i, pvecs_other) in enumerate([pvecs_BIC, pvecs_LIS, pvecs_orig, pvecs_rAMIS])
+        ax = Axis(
+            g[2,i], aspect=DataAspect(), xticks=0:0.2:1,
+            xlabel=method_names[i], xlabelsize=18, 
+            xticklabelsize=16, yticklabelsize=16,
+            ylabel=i == 1 ? "Bridge sampling" : "", ylabelsize=18
+        )
+        vcat_pvecs_other = reduce(vcat, pvecs_other)
+        pmax = pvecs_BS .|> maximum |> maximum
+        lines!([0, pmax], [0, pmax], color=(:grey10, 0.8), linestyle=:dash)
+        sc = scatter!(
+            vcat_pvecs_other, reduce(vcat, pvecs_BS),
+            color=sqrt.(vec(var_ratios')), colorrange=(0, 0.6), #colormap=Reverse(:viridis),
+            highclip=:yellow,
+            alpha=0.6, markersize=7
+        )
+        colsize!(g, i, Auto(maximum(vcat_pvecs_other)-minimum(vcat_pvecs_other)))
+        if i == 4
+            Colorbar(
+                g[2,end+1], sc, ticklabelsize=16, alignmode=Mixed(right=0),
+                label="Max posterior-to-prior SD ratio", labelsize=18
+            )
+        end
+    end
+    
+    Label(g[1,:], "Comparison of model posterior probabilities", fontsize=20, font=:bold)
+    Label(g[1,1,Left()], "E",
+        fontsize = 24, font = :bold,
+        padding = (0,32, 0, 0), # left, right, bottom, top
+        halign = :right, valign = :center,
+    )
+    rowgap!(g, 1, -10)
+    rowsize!(f.layout, 3, Relative(0.28))
+
+    display(f)
+    save_dir = mkpath(joinpath(@__DIR__, "imgs/"));
+    save("$(save_dir)/comparison_insect.png", f, px_per_unit=4);
+end
+
+
+
+begin
+    f = Figure(size=(1200, 320))
+    for (i, pvecs_other) in enumerate([pvecs_BIC, pvecs_LIS, pvecs_orig, pvecs_rAMIS])
+        ax = Axis(
+            f[1,i], aspect=DataAspect(), xticks=0:0.2:1,
+            xlabel=method_names[i], xlabelsize=18, 
+            xticklabelsize=16, yticklabelsize=16,
+            ylabel=i == 1 ? "Bridge sampling" : "", ylabelsize=18
+        )
+        vcat_pvecs_other = reduce(vcat, pvecs_other)
+        sc = scatter!(
+            vcat_pvecs_other, reduce(vcat, pvecs_BS),
+            color=sqrt.(vec(var_ratios')), colorrange=(0, 0.6), #colormap=Reverse(:viridis),
+            highclip=:yellow,
+            alpha=0.6, markersize=8
+        )
+        colsize!(f.layout, i, Auto(maximum(vcat_pvecs_other)-minimum(vcat_pvecs_other)))
+    end
+    # colgap!(f.layout, 0)
+    Colorbar(f[1,end+1], sc, ticklabelsize=16, label="Max posterior-to-prior SD ratio", labelsize=18)
+    Label(f[0,:], "Comparison of model posterior probabilities", fontsize=20, font=:bold)
+    display(f)
+    save_dir = mkpath(joinpath(@__DIR__, "imgs/"));
+    save("$(save_dir)/modelposts_identifiability.png", f, px_per_unit=4);
+end
+
+begin
+    f = Figure()
+    ax = Axis(
+        f[1,1], 
+        title="Estimate error vs\neffective sample size", titlesize=18,
+        xlabel="Effective sample size",
+        ylabel="Log-evidence error relative\nto bridge sampling",
+        xticklabelsize=16, yticklabelsize=16,
+        xlabelsize=18, ylabelsize=18,
+        xscale=log10,
+        # yscale=symsqrt, 
+        # yticks=(tick_vals, tick_labels),
+        yticks=-1:0.1:1,
+        # limits=((0, 1.1), nothing)
+    )
+    lines!([0, 1.1], [0, 0], alpha=0.5, color=:black, linestyle=:dash)
+    func = identity
+    for (i, errs) in enumerate([LIS_errors, orig_errors, rAMIS_errors])
+        i == 3 || continue
+        essmat = [LIS_essmat, orig_essmat, rAMIS_essmat][i]
+        scatter!(
+            vec(essmat'), errs,
+            markersize=6, alpha=0.4, color=COLORS[i+1], marker=MARKERS[i+1],
+        )
+    end
+    display(f)
+end
+
+
+# exit()
+nothing
+
+# Tmp code
+
+# scatter(reduce(vcat, eachrow(rAMIS_essmat)), rAMIS_errors)
+
+# size(rAMIS_essmat)
+
+# rAMIS_avgess = [
+#     logsumexp(log.(rAMIS_essvec) .+ rAMIS_logZvec) - logsumexp(rAMIS_logZvec)
+#     for (rAMIS_essvec, rAMIS_logZvec) in zip(eachrow(rAMIS_essmat), rAMIS_logZvecs)
+# ] .|> exp;
+
+# rAMIS_hmess = [
+#     logsumexp(rAMIS_logZvec) - logsumexp(rAMIS_logZvec .- log.(rAMIS_essvec))
+#     for (rAMIS_essvec, rAMIS_logZvec) in zip(eachrow(rAMIS_essmat), rAMIS_logZvecs)
+# ] .|> exp;
+
+# scatter(vec(minimum(rAMIS_essmat; dims=2)), rAMIS_tvds, axis=(xscale=log10,))
+# scatter(vec(maximum(rAMIS_khatmat; dims=2)), rAMIS_tvds)
+
+# scatter(rAMIS_avgess, rAMIS_tvds, axis=(xscale=log10,))
+# scatter(rAMIS_hmess, rAMIS_tvds, axis=(xscale=log10,))
+
+# function guess_tvd(logZvec, essvec)
+#     M = length(logZvec)
+#     return maximum(
+#         begin
+#             alt = copy(logZvec)
+#             alt[m] += 10/sqrt(essvec[m])
+#             calc_tvd(logZvec, alt)
+#         end for m in 1:M
+#     )
+# end
+
+# guesses = [guess_tvd(rAMIS_logZvecs[dir_idx], rAMIS_essmat[dir_idx,:]) for dir_idx in 1:44];
+# scatter(guesses, rAMIS_tvds)
+
+# dir_idx = 21;
+# scatter(
+#     exp.(BS_logZvecs[dir_idx] .- logsumexp(BS_logZvecs[dir_idx])),
+#     # sqrt.(1 ./ rAMIS_essmat[dir_idx,:]),
+#     rAMIS_logZvecs[dir_idx] .- BS_logZvecs[dir_idx]
+# )
+
+# scatter(
+#     guesses, rAMIS_tvds
+# )
+
+# hist(log10.(vec(rAMIS_essmat)))
 
 # begin
 #     f = Figure(size=(1200, 675))
@@ -321,7 +658,7 @@ MARKERS = [:rect, :circle, :diamond, :xcross]
 
 #     ax = Axis(
 #         f[1,2],
-#         title="Log-evidence errors relative to bridge sampling",
+#         title="Log-evidence errors relative\nto bridge sampling",
 #         xscale=Makie.Symlog10(1/10^n),
 #         yscale=Makie.Symlog10(1/10^n),
 #         limits=((-6, 6), (-6, 6)),
@@ -343,7 +680,7 @@ MARKERS = [:rect, :circle, :diamond, :xcross]
 #     var_ratios_vec = reduce(vcat, eachrow(var_ratios))
 #     sc = scatter!(
 #         reduce(vcat, orig_logZvecs .- BS_logZvecs)[plot_order],
-#         reduce(vcat, chisq_logZvecs .- BS_logZvecs)[plot_order],
+#         reduce(vcat, rAMIS_logZvecs .- BS_logZvecs)[plot_order],
 #         color=var_ratios_vec[plot_order], colorscale=log10, alpha=0.6, markersize=8,
 #     )
 #     Colorbar(f[1:2,3], sc, label="Posterior-to-prior variance ratio", labelsize=18, ticklabelsize=16, tellheight=false, height=Auto(0.8))
@@ -352,7 +689,7 @@ MARKERS = [:rect, :circle, :diamond, :xcross]
 #         f[2,1], title="Performance of standard AMIS",
 #         titlesize=18,
 #         xlabel="Effective sample size", xlabelsize=18,
-#         ylabel="Log-evidence errors relative to bridge sampling", ylabelsize=18,
+#         ylabel="Log-evidence errors relative\nto bridge sampling", ylabelsize=18,
 #         xticklabelsize=16, yticklabelsize=16,
 #         limits=((2, 1.2e6), (-6, 6)),
 #         xscale=log10,
@@ -374,7 +711,7 @@ MARKERS = [:rect, :circle, :diamond, :xcross]
 #         f[2,2], title="Performance of Robust AMIS",
 #         titlesize=18,
 #         xlabel="Effective sample size", xlabelsize=18,
-#         ylabel="Log-evidence errors relative to bridge sampling", ylabelsize=18,
+#         ylabel="Log-evidence errors relative\nto bridge sampling", ylabelsize=18,
 #         xticklabelsize=16, yticklabelsize=16,
 #         limits=((2, 1.2e6), (-6, 6)),
 #         xscale=log10,
@@ -387,8 +724,8 @@ MARKERS = [:rect, :circle, :diamond, :xcross]
 #     band!([1,1e7], [1/10^n,1/10^n], [20,20], color=:grey, alpha=0.15)
 
 #     scatter!(
-#         reduce(vcat, eachrow(chisq_essmat))[plot_order],
-#         reduce(vcat, chisq_logZvecs .- BS_logZvecs)[plot_order],
+#         reduce(vcat, eachrow(rAMIS_essmat))[plot_order],
+#         reduce(vcat, rAMIS_logZvecs .- BS_logZvecs)[plot_order],
 #         color=var_ratios_vec[plot_order], colorscale=log10, alpha=0.6, markersize=8,
 #     )
 
@@ -397,150 +734,12 @@ MARKERS = [:rect, :circle, :diamond, :xcross]
 #     save("$(save_dir)/comparison_insect.png", f, px_per_unit=4);
 # end
 
-all_tvds .|> maximum
-tvd_bins = 0:0.01:0.34
-tvd_hists = fit.(Histogram, all_tvds, Ref(tvd_bins));
-tvd_histmaxs = getproperty.(tvd_hists, :weights) .|> maximum
-tvd_heights = tvd_histmaxs ./ maximum(tvd_histmaxs)
-
-all_essvecs = [vec(LIS_essmat), vec(orig_essmat), vec(chisq_essmat)];
-extrema.(all_essvecs)
-ess_bins = logrange(1, 1e6, 31)[3:end]
-ess_hists = fit.(Histogram, all_essvecs, Ref(ess_bins));
-ess_histmaxs = getproperty.(ess_hists, :weights) .|> maximum
-ess_heights = ess_histmaxs ./ maximum(ess_histmaxs)
-
-begin
-    f = Figure(size=(1000, 920))
-
-    cats = repeat(1:4, inner=n_feasible)
-
-    ax = Axis(
-        f[1,1],
-        yticklabelsize=16,
-        limits=(nothing, (-0.01, nothing)),
-        ylabel="Total variation distance from bridge sampling", ylabelsize=18,
-        title="Discrepancy of posterior distributions\nfrom gold standard", titlesize=18,
-        # xticks=(1:4, ["BIC", "Laplace IS", "Standard AMIS", "Robust AMIS"]),
-        # xticklabelrotation=π/6, 
-        xticks=(1:4, ["BIC", "Laplace\nIS", "Standard\nAMIS", "Robust\nAMIS"]),
-        xticklabelsize=18, xgridvisible=true
-    )
-    
-    for i in 1:4
-        # rainclouds!(
-        #     fill(i, n_feasible), all_tvds[i],
-        #     color=COLORS[i],
-        #     plot_boxplots=false, 
-        #     jitter_width=0.2, markersize=5,
-        #     show_median=false, 
-        #     clouds=hist, cloud_width=0.7*tvd_heights[i], gap=0.0, dodge_gap=0.1, side_nudge=0.125, hist_bins=tvd_bins,
-        #     # clouds=violin, cloud_width=1, violin_limits=(0, Inf),
-            
-        # )
-        hist!(
-            all_tvds[i], color=COLORS[i], 
-            scale_to=-0.8*tvd_heights[i], offset=i, 
-            direction=:x, bins=tvd_bins
-        )
-    end
-
-    var_ratios_vec = reduce(vcat, eachrow(var_ratios))
-
-    ax = Axis(
-        f[1,2], 
-        title="Estimate bias vs\nparameter identifiability", titlesize=18,
-        xlabel="Max posterior-to-prior SD ratio",
-        ylabel="Log-evidence error relative to bridge sampling",
-        xticklabelsize=16, yticklabelsize=16,
-        xlabelsize=18, ylabelsize=18,
-        # yscale=symsqrt, 
-        # yticks=(tick_vals, tick_labels),
-        limits=((0, 1.1), nothing)
-    )
-    lines!([0, 1.1], [0, 0], alpha=0.5, color=:black, linestyle=:dash)
-    func = identity
-    for (i, errs) in enumerate([LIS_errors, orig_errors, chisq_errors])
-        scatter!(
-            sqrt.(var_ratios_vec), errs,
-            markersize=5, alpha=0.4, color=COLORS[i+1], marker=MARKERS[i+1],
-        )
-    end
-
-    cats = repeat(1:3, inner=(n_feasible*n_models))
-
-    ax = Axis(
-        f[2,1],
-        yticks=(10 .^ (1:6), [L"10^{%$p}" for p in 1:6]),
-        yticklabelsize=16,
-        yscale=log10,
-        ylabel="Effective sample size", ylabelsize=18,
-        title="Effective sample size for\nimportance sampling methods", titlesize=18,
-        # xticks=(1:3, ["Laplace IS", "Standard AMIS", "Robust AMIS"]),
-        # xticklabelrotation=π/6,
-        xticks=(1:3, ["Laplace\nIS", "Standard\nAMIS", "Robust\nAMIS"]),
-        xticklabelsize=18, xgridvisible=true
-    )
-    
-    for i in 1:3
-        # rainclouds!(
-        #     fill(i, n_feasible*n_models), all_essvecs[i],
-        #     color=COLORS[i+1], markersize=2,
-        #     plot_boxplots=false, 
-        #     jitter_width=0.2,
-        #     show_median=false, 
-        #     clouds=hist, cloud_width=0.7*ess_heights[i], gap=0.0, dodge_gap=0.1, side_nudge=0.125, hist_bins=logrange(1, 1e6, 31)[4:end]
-        # )
-        hist!(
-            all_essvecs[i], color=COLORS[i+1], 
-            scale_to=-0.8*ess_heights[i], offset=i, 
-            direction=:x, bins=ess_bins
-        )
-    end
-
-    ax = Axis(
-        f[2,2], 
-        title="Effective sample size vs\nparameter identifiability", titlesize=18,
-        xlabel="Max posterior-to-prior SD ratio",
-        ylabel="Effective sample size",
-        xticklabelsize=16, yticklabelsize=16,
-        xlabelsize=18, ylabelsize=18,
-        yscale=log10, 
-        yticks=(10 .^ (1:6), [L"10^{%$p}" for p in 1:6]),
-        limits=((0, 1.1), nothing)
-    )
-    for (i, essmat) in enumerate([LIS_essmat, orig_essmat, chisq_essmat])
-        scatter!(
-            sqrt.(var_ratios_vec),
-            vec(essmat'), markersize=5, alpha=0.4, color=COLORS[i+1], marker=MARKERS[i+1],
-        )
-    end 
-
-    Legend(
-        f[:, 3],
-        [MarkerElement(color=COLORS[c], marker=MARKERS[c], markersize=8) for c in 2:4],
-        ["Laplace IS", "Standard AMIS", "Robust AMIS"],
-        labelsize=18, tellheight=false, 
-    )
-
-    display(f)
-    save_dir = mkpath(joinpath(@__DIR__, "imgs/"));
-    save("$(save_dir)/comparison_insect.png", f, px_per_unit=4);
-end
-
-exit()
-
-
-# Tmp code
-
-
-
 hist(log10.(var_ratios_vec))
 hist(sqrt.(var_ratios_vec))
 mean(sqrt.(var_ratios_vec) .< 0.2)
 
-scatter(var_ratios_vec, reduce(vcat, chisq_logZvecs .- BS_logZvecs))
-sub_idxs = findall(reduce(vcat, chisq_logZvecs .- BS_logZvecs) .|> abs .> log(2))
+scatter(var_ratios_vec, reduce(vcat, rAMIS_logZvecs .- BS_logZvecs))
+sub_idxs = findall(reduce(vcat, rAMIS_logZvecs .- BS_logZvecs) .|> abs .> log(2))
 sqrt(minimum(var_ratios_vec[sub_idxs]))
 
 scatter(var_ratios_vec, reduce(vcat, orig_logZvecs .- BS_logZvecs))
@@ -568,7 +767,7 @@ tick_labels = [
 vratio_order = sortperm(var_ratios_vec);
 LIS_errors = reduce(vcat, LIS_logZvecs .- BS_logZvecs)[vratio_order];
 orig_errors = reduce(vcat, orig_logZvecs .- BS_logZvecs)[vratio_order];
-chisq_errors = reduce(vcat, chisq_logZvecs .- BS_logZvecs)[vratio_order];
+rAMIS_errors = reduce(vcat, rAMIS_logZvecs .- BS_logZvecs)[vratio_order];
 begin
     f = Figure()
     ax = Axis(
@@ -591,7 +790,7 @@ begin
     )
     stairs!(
         sqrt.(var_ratios_vec[vratio_order]),
-        accumulate(max, chisq_errors .|> abs), step=:post, color=COLORS[4]
+        accumulate(max, rAMIS_errors .|> abs), step=:post, color=COLORS[4]
     )
     display(f)
 end
@@ -619,7 +818,7 @@ begin
     )
     scatter!(
         sqrt.(var_ratios_vec[vratio_order]),
-        chisq_errors .|> func, markersize=4, alpha=0.5, color=COLORS[4]
+        rAMIS_errors .|> func, markersize=4, alpha=0.5, color=COLORS[4]
     )
     display(f)
 end
@@ -639,15 +838,15 @@ begin
     func = identity
     scatter!(
         sqrt.(var_ratios_vec[vratio_order]),
-        LIS_errors .|> func, markersize=5, alpha=0.4, color=COLORS[2]
+        LIS_errors .|> func, markersize=6, alpha=0.4, color=COLORS[2]
     )
     scatter!(
         sqrt.(var_ratios_vec[vratio_order]),
-        orig_errors .|> func, markersize=5, alpha=0.4, color=COLORS[3]
+        orig_errors .|> func, markersize=6, alpha=0.4, color=COLORS[3]
     )
     scatter!(
         sqrt.(var_ratios_vec[vratio_order]),
-        chisq_errors .|> func, markersize=5, alpha=0.4, color=COLORS[4]
+        rAMIS_errors .|> func, markersize=6, alpha=0.4, color=COLORS[4]
     )
     display(f)
 end
@@ -657,7 +856,7 @@ begin
     ax = Axis(
         f[1,1], 
         xlabel="Max posterior-to-prior SD ratio",
-        ylabel="Log-evidence error relative to bridge sampling",
+        ylabel="Log-evidence error relative\nto bridge sampling",
         xticklabelsize=16, yticklabelsize=16,
         xlabelsize=18, ylabelsize=18,
         # yscale=log10, 
@@ -667,15 +866,15 @@ begin
     func = identity
     scatter!(
         sqrt.(var_ratios_vec[vratio_order]),
-        LIS_errors .|> func, markersize=5, alpha=0.4, color=COLORS[2]
+        LIS_errors .|> func, markersize=6, alpha=0.4, color=COLORS[2]
     )
     scatter!(
         sqrt.(var_ratios_vec[vratio_order]),
-        orig_errors .|> func, markersize=5, alpha=0.4, color=COLORS[3]
+        orig_errors .|> func, markersize=6, alpha=0.4, color=COLORS[3]
     )
     scatter!(
         sqrt.(var_ratios_vec[vratio_order]),
-        chisq_errors .|> func, markersize=5, alpha=0.4, color=COLORS[4]
+        rAMIS_errors .|> func, markersize=6, alpha=0.4, color=COLORS[4]
     )
     display(f)
 end
@@ -695,15 +894,15 @@ begin
     )
     scatter!(
         sqrt.(var_ratios_vec[vratio_order]),
-        LIS_essmat |> vec, markersize=5, alpha=0.4, color=COLORS[2]
+        LIS_essmat |> vec, markersize=6, alpha=0.4, color=COLORS[2]
     )
     scatter!(
         sqrt.(var_ratios_vec[vratio_order]),
-        orig_essmat |> vec, markersize=5, alpha=0.4, color=COLORS[3]
+        orig_essmat |> vec, markersize=6, alpha=0.4, color=COLORS[3]
     )
     scatter!(
         sqrt.(var_ratios_vec[vratio_order]),
-        chisq_essmat |> vec, markersize=5, alpha=0.4, color=COLORS[4]
+        rAMIS_essmat |> vec, markersize=6, alpha=0.4, color=COLORS[4]
     )
     display(f)
 end
@@ -725,7 +924,7 @@ begin
         f[1,1], title="Performance of Robust AMIS",
         titlesize=18,
         xlabel="Effective sample size", xlabelsize=18,
-        ylabel="Log-evidence errors relative to bridge sampling", ylabelsize=18,
+        ylabel="Log-evidence errors relative\nto bridge sampling", ylabelsize=18,
         xticklabelsize=16, yticklabelsize=16,
         # limits=((2, 1.2e6), (-6, 6)),
         xscale=log10,
@@ -735,8 +934,8 @@ begin
     )
 
     scatter!(
-        reduce(vcat, eachrow(chisq_essmat))[plot_order],
-        reduce(vcat, chisq_logZvecs .- BS_logZvecs)[plot_order],
+        reduce(vcat, eachrow(rAMIS_essmat))[plot_order],
+        reduce(vcat, rAMIS_logZvecs .- BS_logZvecs)[plot_order],
         color=var_ratios_vec[plot_order], colorscale=log10, alpha=0.5, markersize=7,
     )
 
@@ -763,14 +962,14 @@ begin
     )
     
     # rainclouds!(
-    #     cats, vcat(vec(LIS_essmat), vec(orig_essmat), vec(chisq_essmat)),
+    #     cats, vcat(vec(LIS_essmat), vec(orig_essmat), vec(rAMIS_essmat)),
     #     color=COLORS[2:4][cats], markersize=2,
     #     plot_boxplots=false, clouds=nothing, 
     #     gap=-0.1, dodge_gap=0.1,
     #     jitter_width=0.67
     # )
 
-    for (i, essmat) in enumerate([LIS_essmat, orig_essmat, chisq_essmat])
+    for (i, essmat) in enumerate([LIS_essmat, orig_essmat, rAMIS_essmat])
         hist!(
             ax, vec(essmat), bins=logrange(1, 1e6, 25), 
             scale_to=-0.7, offset=i, direction=:x, color=COLORS[i+1]
@@ -792,7 +991,7 @@ begin
         f[1,1],
         yticklabelsize=16,
         limits=(nothing, (-0.01, nothing)),
-        ylabel="Total variation distance from bridge sampling", ylabelsize=18,
+        ylabel="Total variation distance\nfrom bridge sampling", ylabelsize=18,
         title="Accuracy of model selection methods", titlesize=18,
         # xticks=(1:4, ["BIC", "Laplace IS", "Standard AMIS", "Robust AMIS"]),
         # xticklabelrotation=π/6, 
@@ -805,7 +1004,7 @@ begin
             fill(i, n_feasible), all_tvds[i],
             color=COLORS[i],
             plot_boxplots=false, 
-            jitter_width=0.2, markersize=5,
+            jitter_width=0.2, markersize=6,
             show_median=false, 
             clouds=hist, cloud_width=tvd_heights[i], gap=0.0, dodge_gap=0.1, side_nudge=0.125, hist_bins=tvd_bins,
             # clouds=violin, cloud_width=1, violin_limits=(0, Inf),
@@ -831,7 +1030,7 @@ begin
 
     ax = Axis(
         f[1,2],
-        title="Log-evidence errors relative to bridge sampling",
+        title="Log-evidence errors relative\nto bridge sampling",
         xscale=symsqrt,
         yscale=symsqrt,
         # limits=((-6, 2), (-6, 2)),
@@ -850,7 +1049,7 @@ begin
     
     sc = scatter!(
         reduce(vcat, orig_logZvecs .- BS_logZvecs)[plot_order],
-        reduce(vcat, chisq_logZvecs .- BS_logZvecs)[plot_order],
+        reduce(vcat, rAMIS_logZvecs .- BS_logZvecs)[plot_order],
         color=sqrt.(var_ratios_vec[plot_order]), colormap=Reverse(:viridis), alpha=0.6, markersize=7,
         # color=var_ratios_vec[plot_order], colorscale=log10, alpha=0.5, markersize=7,
     )
@@ -892,7 +1091,7 @@ begin
         f[2,2], title="Performance of robust AMIS",
         titlesize=18,
         xlabel="Effective sample size", xlabelsize=18,
-        ylabel="Log-evidence errors relative to bridge sampling", ylabelsize=18,
+        ylabel="Log-evidence errors relative\nto bridge sampling", ylabelsize=18,
         xticklabelsize=16, yticklabelsize=16,
         # limits=((2, 1.2e6), (-6, 6)),
         xscale=log10,
@@ -902,8 +1101,8 @@ begin
     )
 
     sc = scatter!(
-        reduce(vcat, eachrow(chisq_essmat))[plot_order],
-        reduce(vcat, chisq_logZvecs .- BS_logZvecs)[plot_order],
+        reduce(vcat, eachrow(rAMIS_essmat))[plot_order],
+        reduce(vcat, rAMIS_logZvecs .- BS_logZvecs)[plot_order],
         color=sqrt.(var_ratios_vec[plot_order]), colormap=Reverse(:viridis), alpha=0.6, markersize=7,
     )
 

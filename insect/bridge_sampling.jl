@@ -65,9 +65,12 @@ end
 bridge_idxs = filter(x -> mod(x, 3) == 0, 1:15000)
 fit_idxs = filter(x -> mod(x, 3) != 0, 1:15000)
 
-for model_idx in 1:n_models
-    # println("Model $(model_idx)")
+for model_idx in 1:n_models    
     fname = joinpath(OUTDIR, "BS_model$(model_idx).jld2")
+    if isfile(fname) && model_idx ∉ [21, 35, 37]
+        continue
+    end
+    println("Model $(model_idx)")
     flush(stdout); flush(stderr);
 
     d = nparams[model_idx]

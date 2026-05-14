@@ -24,6 +24,7 @@ function laplace_IS(target, MAP, hess, n_samples; df=4)
     return (
         # logps = logps,
         # logqs = logqs,
+        all_samples = samples,
         psis_logws = psis_res.log_weights,
         pareto_shape = psis_res.pareto_shape
     )

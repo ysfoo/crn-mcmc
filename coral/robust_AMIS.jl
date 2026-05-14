@@ -1,37 +1,30 @@
 include(joinpath(@__DIR__, "setup.jl"));
 include(joinpath(@__DIR__, "../AMIS_helpers.jl"));
 
-# This script takes one command-line argument, which is the index of `feasible_idxs`.
-dir_idx = parse(Int64, ARGS[1])
-# dir_idx = 2
-genmodel_idx = feasible_idxs[dir_idx]
+# This script takes one command-line argument, which is the seed.
+seed = parse(Int64, ARGS[1])
 
-OUTDIR = joinpath(@__DIR__, "output/data$(dir_idx)") # inference result directory
+using PDMats, LogExpFunctions, PSIS
 
-# Fetch packages.
-using Distributions, LinearAlgebra, LogExpFunctions, Optim, OrdinaryDiffEq, PDMats, PEtab, Random
-using JLD2, ProgressMeter
-using Bijectors, LogDensityProblems, LogDensityProblemsAD
-using Pathfinder, PSIS, StableRNGs
-
-@load joinpath(@__DIR__, "data.jld2") all_data;
-data = all_data[genmodel_idx];
+INFDIR = joinpath(@__DIR__, "output/seed$(seed)");
+OUTDIR = joinpath(@__DIR__, "output") # output directory
+@load "$OUTDIR/MAPs.jld2" model_fits;
 
 
-function chisq_AMIS(target, prior_sampler, prior_means, prior_vars; 
+function robust_AMIS(target, prior_sampler, prior_means, prior_vars; 
                     nruns=20, Kmax=50)
 
-    d = target.dim
-    @time keep_dists, _ = init_dists(target, prior_sampler, prior_means, prior_vars, nruns, Kmax, 2d)
-
+    d = LogDensityProblems.dimension(target)
+    @time q1_dists, em_init_dists = init_dists(target, prior_sampler, prior_means, prior_vars, nruns, Kmax, 2d)
+    K1 = length(q1_dists)
+    
     n_vec = [0; round.(Int, logrange(1e4, 1e6, 16))]
     incr_vec = diff(n_vec)
     n_iter = length(incr_vec) - 1
-    Kmax = length(keep_dists)
     gm = GaussianMixture(
-    Kmax, d, fill(1/Kmax, Kmax),
-        [copy(dist.μ) for dist in keep_dists],
-        [cholesky(inv(hermitianpart(dist.Σ))) for dist in keep_dists], 
+        K1, d, fill(1/K1, K1),
+        [copy(dist.μ) for dist in q1_dists],
+        [cholesky(inv(hermitianpart(dist.Σ))) for dist in q1_dists], 
     );
     gm_vec = [gm]; # I
     all_samples = Matrix{Float64}(undef, d, 0); # D x N
@@ -49,7 +42,7 @@ function chisq_AMIS(target, prior_sampler, prior_means, prior_vars;
         new_samples = rand(gm, n_incr)
         all_samples = hcat(all_samples, new_samples)
 
-        @time new_logps = target.logtarget.(eachcol(new_samples))
+        new_logps = LogDensityProblems.logdensity.(Ref(target), eachcol(new_samples))
         new_logps[findall(isnan, new_logps)] .= -Inf
         append!(all_logps, new_logps)
 
@@ -84,15 +77,23 @@ function chisq_AMIS(target, prior_sampler, prior_means, prior_vars;
         X = all_samples[:,em_idxs];
 
         # Re-init mixture
-        K_add = Kmax - gm.K
+        K_add = max(Kmax - gm.K, 0)
         sample_idxs = sample(1:n_em, weights(em_ws), K_add; replace=false)
         overall_var = var(X; dims=2) |> vec
         new_prec_chol = cholesky(diagm(1 ./ overall_var))
-        gm = K_add == 0 ? deepcopy(gm) : GaussianMixture(
-        Kmax, gm.d, [gm.weights .* (gm.K/Kmax); fill(1/Kmax, K_add)], 
-            [gm.means; [copy(X[:, idx]) for idx in sample_idxs]], 
-            [gm.chols; [deepcopy(new_prec_chol) for _ in 1:K_add]]
-        )
+        if iter == 1
+            gm = GaussianMixture(
+                Kmax, d, fill(1/Kmax, Kmax),
+                [copy(dist.μ) for dist in em_init_dists],
+                [cholesky(inv(hermitianpart(dist.Σ))) for dist in em_init_dists], 
+            );
+        else
+            gm = K_add == 0 ? gm : GaussianMixture(
+                Kmax, gm.d, [gm.weights .* (gm.K/Kmax); fill(1/Kmax, K_add)], 
+                [gm.means; [copy(X[:, idx]) for idx in sample_idxs]], 
+                [gm.chols; [deepcopy(new_prec_chol) for _ in 1:K_add]]
+            )
+        end
         @assert sum(gm.weights) ≈ 1.
 
         # Fit Gaussian mixture using subset of accumulated samples
@@ -125,34 +126,33 @@ function chisq_AMIS(target, prior_sampler, prior_means, prior_vars;
         all_logqs_mat = vcat(all_logqs_mat, logpdf(gm_vec[end], all_samples)')
 
         @info "Iter $iter:" n_tot Zhat wESS pareto_shape
-        flush(stdout)
         flush(stderr)
-        if false
-            i1 = 4
-            # i2 = 3
-            i2 = 7
-            f, ax, sc = scatter(trace[:,i1], trace[:,i2], color=:grey, alpha=0.05, axis=(title="Iter $iter",))
-            autolimits!(ax)
-            ax_limits = ax.finallimits[]
-            scatter!(
-                getindex.(gm.means, i1), 
-                getindex.(gm.means, i2), 
-                color=1:gm.K, colormap=Reverse(:viridis), alpha=0.8, markersize=8,
-            )
-            for i in 1:gm.K
-                add_ellipse!(
-                    ax, gm.means[i], Matrix(inv(gm.chols[i])), i1, i2, 
-                    color=gm.weights[i], colormap=Reverse(:viridis), colorrange=(0, 1), alpha=0.6
-                )
-            end
-            # scatter!(
-            #     getindex.(getproperty.(keep_dists, :μ), i1), 
-            #     getindex.(getproperty.(keep_dists, :μ), i2), 
-            #     alpha=0.4, markersize=6,
-            # )
-            limits!(ax, ax_limits)
-            display(f)
-        end
+        # if false
+        #     i1 = 4
+        #     # i2 = 3
+        #     i2 = 7
+        #     f, ax, sc = scatter(trace[:,i1], trace[:,i2], color=:grey, alpha=0.05, axis=(title="Iter $iter",))
+        #     autolimits!(ax)
+        #     ax_limits = ax.finallimits[]
+        #     scatter!(
+        #         getindex.(gm.means, i1), 
+        #         getindex.(gm.means, i2), 
+        #         color=1:gm.K, colormap=Reverse(:viridis), alpha=0.8, markersize=8,
+        #     )
+        #     for i in 1:gm.K
+        #         add_ellipse!(
+        #             ax, gm.means[i], Matrix(inv(gm.chols[i])), i1, i2, 
+        #             color=gm.weights[i], colormap=Reverse(:viridis), colorrange=(0, 1), alpha=0.6
+        #         )
+        #     end
+        #     # scatter!(
+        #     #     getindex.(getproperty.(q1_dists, :μ), i1), 
+        #     #     getindex.(getproperty.(q1_dists, :μ), i2), 
+        #     #     alpha=0.4, markersize=6,
+        #     # )
+        #     limits!(ax, ax_limits)
+        #     display(f)
+        # end
     end
 
     n_tot = sum(incr_vec);
@@ -162,7 +162,7 @@ function chisq_AMIS(target, prior_sampler, prior_means, prior_vars;
     new_samples = rand(gm, n_incr);
     all_samples = hcat(all_samples, new_samples);
 
-    new_logps = target.logtarget.(eachcol(new_samples));
+    new_logps = LogDensityProblems.logdensity.(Ref(target), eachcol(new_samples))
     new_logps[findall(isnan, new_logps)] .= -Inf
     append!(all_logps, new_logps);
 
@@ -177,60 +177,30 @@ function chisq_AMIS(target, prior_sampler, prior_means, prior_vars;
     return (
         incr_vec = incr_vec,
         gm_vec = gm_vec,
-        all_logps = all_logps,
-        all_logqs = all_logqs,
+        all_samples = all_samples,
         psis_logws = psis_res.log_weights,
         pareto_shape = psis_res.pareto_shape
     )
 end
 
-# model_idx = 63
-# model_idx = parse(Int64, ARGS[1])
-# begin
-for model_idx in 1:n_models 
-    println("Model $(model_idx)")
-    fname = joinpath(OUTDIR, "chisq_AMIS_model$(model_idx).jld2") # change back to chisq
-    flush(stdout); flush(stderr);
-    # isfile(fname) && continue # TODO: uncomment
+# for seed in 1:100
+for model_sym in model_syms
+    fname = joinpath(INFDIR, "robust_AMIS_$(model_sym).jld2")
+    target = target_dict[model_sym]
 
-    d = nparams[model_idx]
-    pmodel = create_petab_model(models[model_idx], data, u0);
-    petab_prob = PEtabODEProblem(pmodel; odesolver=ODESolver(Rodas5P(), verbose=false));
-    target = PEtabLogDensity(petab_prob);
-    prior_sampler = create_prior_sampler(petab_prob);
+    prior_dists = priors_dict[model_sym]
+    prior_sampler = create_prior_sampler(prior_dists)
+    prior_means = getproperty.(prior_dists, :μ)
+    prior_vars = getproperty.(prior_dists, :σ) .|> abs2
 
-    prior_means = [fill(0.0, d-1); -1.0];
-    prior_vars = [fill(2.0^2, d-1); 1.0^2];
-
-    Random.seed!(dir_idx*n_models + model_idx);
-    timed_res = @timed chisq_AMIS(
-    target, prior_sampler, 
-    prior_means, prior_vars; nruns=20
-    ); 
+    model_fit = model_fits[model_sym].value
+    Random.seed!(seed + (model_sym |> String |> hash))
+    timed_res = @timed robust_AMIS(target, prior_sampler, prior_means, prior_vars; nruns=30)
     @save fname timed_res
+
+    psis_logws = timed_res.value.psis_logws
+    Zhat = logsumexp(psis_logws) - log(length(psis_logws))
+    @info String(model_sym) Zhat compute_ess(psis_logws) timed_res.value.pareto_shape
+    flush(stderr)
 end
-
-exit()
-
-# Test
-
-fname = joinpath(OUTDIR, "chisq_AMIS_model$(model_idx).jld2");
-@load fname timed_res;
-res = timed_res.value;
-N = 10^6;
-logsumexp(res.psis_logws) - log(N)
-compute_ess(res.psis_logws)
-
-include(joinpath(@__DIR__, "../plot_helpers.jl"));
-using Turing, MCMCChains
-
-model_idx = 63;
-d = nparams[model_idx]
-dir_idx = 2
-genmodel_idx = feasible_idxs[dir_idx]
-
-OUTDIR = joinpath(@__DIR__, "output/data$(dir_idx)");
-mcmc_fname = joinpath(OUTDIR, "MCMC_model$(model_idx).jld2");
-
-@nowarn_load mcmc_fname chn ess_df;
-trace = chn.value[:,1:d,1].data;
+# end
