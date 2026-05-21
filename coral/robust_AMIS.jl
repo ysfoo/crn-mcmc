@@ -6,10 +6,10 @@ seed = parse(Int64, ARGS[1])
 
 using PDMats, LogExpFunctions, PSIS
 
-INFDIR = joinpath(@__DIR__, "output/seed$(seed)");
-OUTDIR = joinpath(@__DIR__, "output") # output directory
-@load "$OUTDIR/MAPs.jld2" model_fits;
+@load joinpath(@__DIR__, "output/MAPs.jld2") model_fits;
 
+mkpath(INFDIR)
+INFDIR = joinpath(@__DIR__, "output/seed$(seed)");
 
 function robust_AMIS(target, prior_sampler, prior_means, prior_vars; 
                     nruns=20, Kmax=50)

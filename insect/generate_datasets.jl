@@ -184,15 +184,15 @@ function make_plot!(idx, models, u0, tuned_params, all_data)
     make_plot!(models[idx], u0, tuned_params[idx], all_data[idx])
 end
 
-begin
-    f = Figure(size=(600, 1080));
-    @showprogress for (i, model_idx) in enumerate(feasible_idxs)
-        ax = Axis(f[fld1(i, 5), mod1(i, 5)], limits=(nothing, (-0.2, 5)));
-        make_plot!(model_idx, models, u0, tuned_params, all_data)
-    end
-    # display(f)
-    save(joinpath(@__DIR__, "imgs/all_data.png"), f)
-end
+# begin
+#     f = Figure(size=(600, 1080));
+#     @showprogress for (i, model_idx) in enumerate(feasible_idxs)
+#         ax = Axis(f[fld1(i, 5), mod1(i, 5)], limits=(nothing, (-0.2, 5)));
+#         make_plot!(model_idx, models, u0, tuned_params, all_data)
+#     end
+#     # display(f)
+#     save(joinpath(@__DIR__, "imgs/all_data.png"), f)
+# end
 
 @save joinpath(@__DIR__, "params.jld2") tuned_params;
 @save joinpath(@__DIR__, "data.jld2") all_data;

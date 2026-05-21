@@ -7,6 +7,7 @@ dir_idx = parse(Int64, ARGS[1])
 genmodel_idx = feasible_idxs[dir_idx]
 
 OUTDIR = joinpath(@__DIR__, "output/data$(dir_idx)") # inference result directory
+mkpath(OUTDIR)
 
 # Fetch packages.
 using Distributions, LinearAlgebra, LogExpFunctions, Optim, OrdinaryDiffEq, PDMats, PEtab, Random
@@ -217,27 +218,27 @@ for model_idx in 1:n_models
     @save fname timed_res
 end
 
-exit()
+# exit()
 
-# Test
+## Playground
 
-fname = joinpath(OUTDIR, "robust_AMIS_model$(model_idx).jld2");
-@load fname timed_res;
-res = timed_res.value;
-N = 10^6;
-logsumexp(res.psis_logws) - log(N)
-compute_ess(res.psis_logws)
+# fname = joinpath(OUTDIR, "robust_AMIS_model$(model_idx).jld2");
+# @load fname timed_res;
+# res = timed_res.value;
+# N = 10^6;
+# logsumexp(res.psis_logws) - log(N)
+# compute_ess(res.psis_logws)
 
-include(joinpath(@__DIR__, "../plot_helpers.jl"));
-using Turing, MCMCChains
+# include(joinpath(@__DIR__, "../plot_helpers.jl"));
+# using Turing, MCMCChains
 
-model_idx = 63;
-d = nparams[model_idx]
-dir_idx = 2
-genmodel_idx = feasible_idxs[dir_idx]
+# model_idx = 63;
+# d = nparams[model_idx]
+# dir_idx = 2
+# genmodel_idx = feasible_idxs[dir_idx]
 
-OUTDIR = joinpath(@__DIR__, "output/data$(dir_idx)");
-mcmc_fname = joinpath(OUTDIR, "MCMC_model$(model_idx).jld2");
+# OUTDIR = joinpath(@__DIR__, "output/data$(dir_idx)");
+# mcmc_fname = joinpath(OUTDIR, "MCMC_model$(model_idx).jld2");
 
-@nowarn_load mcmc_fname chn ess_df;
-trace = chn.value[:,1:d,1].data;
+# @nowarn_load mcmc_fname chn ess_df;
+# trace = chn.value[:,1:d,1].data;

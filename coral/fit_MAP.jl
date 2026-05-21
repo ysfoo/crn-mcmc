@@ -18,5 +18,6 @@ model_fits = Dict(
     sym => @timed fit_MAP(sym) for sym in model_syms
 );
 
+mkpath(joinpath(@__DIR__, "output"))
 fname = joinpath(@__DIR__, "output/MAPs.jld2");
 @save fname model_fits

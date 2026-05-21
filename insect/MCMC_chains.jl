@@ -7,6 +7,7 @@ dir_idx = parse(Int64, ARGS[1])
 genmodel_idx = feasible_idxs[dir_idx]
 
 OUTDIR = mkpath(joinpath(@__DIR__, "output", "data$(dir_idx)")) # output directory
+mkpath(OUTDIR)
 
 # Fetch packages.
 using PEtab, OrdinaryDiffEq
@@ -78,10 +79,12 @@ function main(model_idx)
     return true
 end
 
+# model_idx = parse(Int64, ARGS[1])
+
 for model_idx in 1:n_models
     ran = main(model_idx);
 end
 
-# model_idx = parse(Int64, ARGS[1])
+
 
 

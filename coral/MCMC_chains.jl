@@ -3,7 +3,10 @@ include(joinpath(@__DIR__, "setup.jl"));
 using Turing, MCMCChains, AdvancedHMC
 using StableRNGs
 
+# This script takes one command-line argument, which is the seed.
 seed = parse(Int64, ARGS[1])
+
+mkpath(INFDIR)
 INFDIR = joinpath(@__DIR__, "output/seed$(seed)");
 
 @model function turing_model(target)

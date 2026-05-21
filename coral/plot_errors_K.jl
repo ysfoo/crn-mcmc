@@ -120,21 +120,6 @@ for model_sym in model_syms
     ess_rAMIS_dict[model_sym] = getproperty.(resvec, :psis_logws) .|> compute_ess
 end
 
-# Zhat_alt_dict = Dict{Symbol,Vector{Float64}}();
-# ess_alt_dict = Dict{Symbol,Vector{Float64}}();
-# for model_sym in model_syms
-#     resvec = [
-#         begin
-#             INFDIR = joinpath(@__DIR__, "output/seed$s");
-#             fname = joinpath(INFDIR, "alt_AMIS_$(model_sym).jld2");
-#             @load fname timed_res
-#             timed_res.value
-#         end for s in 1:n_seed
-#     ]
-#     Zhat_alt_dict[model_sym] = logsumexp.(getproperty.(resvec, :psis_logws)) .- log(10^6)
-#     ess_alt_dict[model_sym] = getproperty.(resvec, :psis_logws) .|> compute_ess
-# end
-
 Zhat_gold_dict = Dict(
     sym => logsumexp(Zhats)-log(n_seed) for (sym, Zhats) in Zhat_BS_dict
 )
@@ -202,32 +187,6 @@ logZvec_seed1 = [Zhat_rAMIS_dict[model_sym][1] for model_sym in model_syms]
 BMA_ws = repeat(exp.(logZvec_seed1 .- maximum(logZvec_seed1)), inner=10000);
 cat_K_samples = reduce(vcat, [all_K_samples[model_sym] for model_sym in model_syms]);
 BMA_K_samples = sample(cat_K_samples, weights(BMA_ws), 10000, replace=true);
-
-# Combine posteriors of predicted duration
-# INFDIR = joinpath(@__DIR__, "output/seed1");
-# all_preds = Dict(
-#     model_sym => begin 
-#         invfunc = invfunc_dict[model_sym]
-#         fname = joinpath(INFDIR, "robust_AMIS_$(model_sym).jld2");
-#         @load fname timed_res;
-#         psis_logws = timed_res.value.psis_logws
-#         idxs = sample(
-#             1:10^6, weights(exp.(psis_logws .- maximum(psis_logws))), 
-#             10000, replace=true
-#         )
-#         [
-#             begin
-#                 θpos = exp10.(timed_res.value.all_samples[:,i])
-#                 θpos[3] = 5
-#                 invfunc(θpos, 50)
-#             end for i in idxs
-#         ]
-#     end for model_sym in model_syms
-# );
-# logZvec_seed1 = [Zhat_rAMIS_dict[model_sym][1] for model_sym in model_syms]
-# BMA_ws = repeat(exp.(logZvec_seed1 .- maximum(logZvec_seed1)), inner=10000);
-# cat_preds = reduce(vcat, [all_preds[model_sym] for model_sym in model_syms]);
-# BMA_preds = sample(cat_preds, weights(BMA_ws), 10000, replace=true);
 
 
 begin
@@ -476,106 +435,108 @@ end
 
 # exit()
 
-Zhat_LIS_dict[:richards]
+## Playground
 
-s = 1;
-INFDIR = joinpath(@__DIR__, "output/seed$s");
-mcmc_fname = joinpath(INFDIR, "chains_richards.jld2");
-@load mcmc_fname chn;
+# Zhat_LIS_dict[:richards]
 
-d = 5;
-trace = permutedims(chn.value[:,1:d,:].data, [2, 1, 3]);
-samples = reshape(trace, d, :);
-X = samples[:,1:10:end];
+# s = 1;
+# INFDIR = joinpath(@__DIR__, "output/seed$s");
+# mcmc_fname = joinpath(INFDIR, "chains_richards.jld2");
+# @load mcmc_fname chn;
 
-extremas = extrema.(eachrow(samples[:,1:10:end]))
-ax_limits = extremas
+# d = 5;
+# trace = permutedims(chn.value[:,1:d,:].data, [2, 1, 3]);
+# samples = reshape(trace, d, :);
+# X = samples[:,1:10:end];
 
-# bad runs
-sym = :richards
-bad = sortperm(ess_rAMIS_dict[:richards])[1:10] # [40, 97, 74, 29, 28, 81, 43, 95, 54, 27]
-ess_rAMIS_dict[:richards][bad] # [1232, 1246, 1373, 1613, 1872, 2184, 3165, 3227, 3308, 4845]
-Zhat_rAMIS_dict[sym][bad] .- Zhat_gold_dict[sym] # [-0.08, -0.52, -0.48, -0.38, -0.35, -0.11, 0.05, -0.59, -0.39, -0.08]
+# extremas = extrema.(eachrow(samples[:,1:10:end]))
+# ax_limits = extremas
 
-s = 40;
-INFDIR = joinpath(@__DIR__, "output/seed$s");
-fname = joinpath(INFDIR, "robust_AMIS_richards.jld2");
-@load fname timed_res;
-sc_color = :grey30
+# # bad runs
+# sym = :richards
+# bad = sortperm(ess_rAMIS_dict[:richards])[1:10] # [40, 97, 74, 29, 28, 81, 43, 95, 54, 27]
+# ess_rAMIS_dict[:richards][bad] # [1232, 1246, 1373, 1613, 1872, 2184, 3165, 3227, 3308, 4845]
+# Zhat_rAMIS_dict[sym][bad] .- Zhat_gold_dict[sym] # [-0.08, -0.52, -0.48, -0.38, -0.35, -0.11, 0.05, -0.59, -0.39, -0.08]
 
-f = plot_pairs(
-    # eachcol(exp10.(X)),
-    eachcol(X),
-    timed_res.value.gm_vec[1].means,
-    timed_res.value.gm_vec[1].chols .|> inv .|> Matrix,
-    title="Initial Gaussians (seed $s)", titlesize=17,
-    figsize=(120*d+60, 120*d), skip_upper=true,
-    scatter_kwargs=(color=sc_color, alpha=0.05, markersize=2),
-    # hexbin_kwargs=(colormap=Reverse(:grays), colorscale=log10),
-    ellipse_kwargs=(color=Makie.wong_colors()[3], alpha=0.2),
-    hist_kwargs=(color=:grey,),
-    axis_kwargs=(aspect=1,), 
-    hist_axis_kwargs=(aspect=1, yscale=log10,),
-    bins_vec=[range(a, b, 41) for (a, b) in extremas]
-); 
+# s = 40;
+# INFDIR = joinpath(@__DIR__, "output/seed$s");
+# fname = joinpath(INFDIR, "robust_AMIS_richards.jld2");
+# @load fname timed_res;
+# sc_color = :grey30
 
-display(f)
+# f = plot_pairs(
+#     # eachcol(exp10.(X)),
+#     eachcol(X),
+#     timed_res.value.gm_vec[1].means,
+#     timed_res.value.gm_vec[1].chols .|> inv .|> Matrix,
+#     title="Initial Gaussians (seed $s)", titlesize=17,
+#     figsize=(120*d+60, 120*d), skip_upper=true,
+#     scatter_kwargs=(color=sc_color, alpha=0.05, markersize=2),
+#     # hexbin_kwargs=(colormap=Reverse(:grays), colorscale=log10),
+#     ellipse_kwargs=(color=Makie.wong_colors()[3], alpha=0.2),
+#     hist_kwargs=(color=:grey,),
+#     axis_kwargs=(aspect=1,), 
+#     hist_axis_kwargs=(aspect=1, yscale=log10,),
+#     bins_vec=[range(a, b, 41) for (a, b) in extremas]
+# ); 
 
-f = plot_pairs(
-    # eachcol(exp10.(X)),
-    eachcol(X),
-    timed_res.value.gm_vec[end].means,
-    timed_res.value.gm_vec[end].chols .|> inv .|> Matrix,
-    title="Final Gaussians (seed $s)", titlesize=17,
-    figsize=(120*d+60, 120*d), skip_upper=true,
-    scatter_kwargs=(color=sc_color, alpha=0.05, markersize=2),
-    # hexbin_kwargs=(colormap=Reverse(:grays), colorscale=log10),
-    ellipse_kwargs=(color=Makie.wong_colors()[3], alpha=0.3),
-    hist_kwargs=(color=:grey,),
-    axis_kwargs=(aspect=1,), 
-    hist_axis_kwargs=(aspect=1, yscale=log10,),
-    bins_vec=[range(a, b, 41) for (a, b) in extremas]
-); 
+# display(f)
 
-display(f)
+# f = plot_pairs(
+#     # eachcol(exp10.(X)),
+#     eachcol(X),
+#     timed_res.value.gm_vec[end].means,
+#     timed_res.value.gm_vec[end].chols .|> inv .|> Matrix,
+#     title="Final Gaussians (seed $s)", titlesize=17,
+#     figsize=(120*d+60, 120*d), skip_upper=true,
+#     scatter_kwargs=(color=sc_color, alpha=0.05, markersize=2),
+#     # hexbin_kwargs=(colormap=Reverse(:grays), colorscale=log10),
+#     ellipse_kwargs=(color=Makie.wong_colors()[3], alpha=0.3),
+#     hist_kwargs=(color=:grey,),
+#     axis_kwargs=(aspect=1,), 
+#     hist_axis_kwargs=(aspect=1, yscale=log10,),
+#     bins_vec=[range(a, b, 41) for (a, b) in extremas]
+# ); 
 
-timed_res.value.psis_logws
-compute_ess(timed_res.value.psis_logws)
-timed_res.value.pareto_shape
-logsumexp(timed_res.value.psis_logws) - log(10^6)
+# display(f)
 
-summarystats(Zhat_BS_dict[:richards])
+# timed_res.value.psis_logws
+# compute_ess(timed_res.value.psis_logws)
+# timed_res.value.pareto_shape
+# logsumexp(timed_res.value.psis_logws) - log(10^6)
 
-sqhdists = Float64[]
-mvnormals = [MvNormal(m, Matrix(inv(c))) for (m, c) in zip(timed_res.value.gm_vec[1].means, timed_res.value.gm_vec[1].chols)];
-K = timed_res.value.gm_vec[1].K
-@showprogress for k1 in 1:K
-    for k2 in (k1+1):K
-        push!(sqhdists, sqhdist_func(mvnormals[k1], mvnormals[k2]))
-    end
-end
-hist(sqhdists)
-viable_idxs = Int64[]
-for c in 1:K
-    is_viable = true
-    for v in viable_idxs
-        if sqhdist_func(mvnormals[c], mvnormals[v]) < 0.1
-            is_viable = false
-            break
-        end
-    end
-    is_viable && push!(viable_idxs, c)
-end
-length(viable_idxs)
+# summarystats(Zhat_BS_dict[:richards])
 
-bad = [40, 97, 74, 29, 28, 81, 43, 95, 54, 27]
-for s in bad
-    INFDIR = joinpath(@__DIR__, "output/seed$s");
-    fname = joinpath(INFDIR, "robust_AMIS_richards.jld2");
-    @load fname timed_res;
+# sqhdists = Float64[]
+# mvnormals = [MvNormal(m, Matrix(inv(c))) for (m, c) in zip(timed_res.value.gm_vec[1].means, timed_res.value.gm_vec[1].chols)];
+# K = timed_res.value.gm_vec[1].K
+# @showprogress for k1 in 1:K
+#     for k2 in (k1+1):K
+#         push!(sqhdists, sqhdist_func(mvnormals[k1], mvnormals[k2]))
+#     end
+# end
+# hist(sqhdists)
+# viable_idxs = Int64[]
+# for c in 1:K
+#     is_viable = true
+#     for v in viable_idxs
+#         if sqhdist_func(mvnormals[c], mvnormals[v]) < 0.1
+#             is_viable = false
+#             break
+#         end
+#     end
+#     is_viable && push!(viable_idxs, c)
+# end
+# length(viable_idxs)
 
-    essval = compute_ess(timed_res.value.psis_logws)
-    err = logsumexp(timed_res.value.psis_logws) - log(10^6) - (-41.51751182568784)
+# bad = [40, 97, 74, 29, 28, 81, 43, 95, 54, 27]
+# for s in bad
+#     INFDIR = joinpath(@__DIR__, "output/seed$s");
+#     fname = joinpath(INFDIR, "robust_AMIS_richards.jld2");
+#     @load fname timed_res;
 
-    display((essval, err))
-end
+#     essval = compute_ess(timed_res.value.psis_logws)
+#     err = logsumexp(timed_res.value.psis_logws) - log(10^6) - (-41.51751182568784)
+
+#     display((essval, err))
+# end

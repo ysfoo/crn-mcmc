@@ -1,10 +1,9 @@
 include(joinpath(@__DIR__, "setup.jl"));
+include(joinpath(@__DIR__, "../plot_helpers.jl"));
 
 # Fetch packages.
 using Distributions, LinearAlgebra, LogExpFunctions, Optim, OrdinaryDiffEq, PDMats, PEtab, Random
 using JLD2, ProgressMeter, Suppressor
-
-include(joinpath(@__DIR__, "../plot_helpers.jl"));
 
 begin
     f = Figure()

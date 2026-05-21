@@ -103,29 +103,6 @@ function orig_AMIS(target, MAP, hess; Kmax=50, df=4, n_out=10000)
         all_logqs_mat = vcat(all_logqs_mat, logpdf(gm_vec[end], all_samples)')
 
         @info "Iter $iter:" n_tot Zhat wESS psis_res.pareto_shape
-        
-
-        # begin
-        #     i1 = 4
-        #     # i2 = 3
-        #     i2 = 7
-        #     f, ax, sc = scatter(trace[:,i1], trace[:,i2], color=:grey, alpha=0.05, axis=(title="Iter $iter",))
-        #     autolimits!(ax)
-        #     ax_limits = ax.finallimits[]
-        #     scatter!(
-        #         getindex.(gm.means, i1), 
-        #         getindex.(gm.means, i2), 
-        #         color=1:gm.K, colormap=Reverse(:viridis), alpha=0.8, markersize=8,
-        #     )
-        #     for i in 1:gm.K
-        #         add_ellipse!(
-        #             ax, gm.means[i], Matrix(inv(gm.chols[i])), i1, i2, 
-        #             color=gm.weights[i], colormap=Reverse(:viridis), colorrange=(0, 1), alpha=0.6
-        #         )
-        #     end
-        #     limits!(ax, ax_limits)
-        #     display(f)
-        # end
     end
 
     n_tot = sum(incr_vec);
@@ -182,93 +159,94 @@ for model_idx in 1:n_models
     @save fname timed_res
 end
 
-exit()
+# exit()
 
-# Test
-dir_idx = 2
-OUTDIR = joinpath(@__DIR__, "output/data$(dir_idx)");
-model_idx = 64
-fname = joinpath(OUTDIR, "orig_AMIS_model$(model_idx).jld2")
+## Playgroud
 
-@load fname timed_res;
-timed_res.time
-res = timed_res.value;
+# dir_idx = 2
+# OUTDIR = joinpath(@__DIR__, "output/data$(dir_idx)");
+# model_idx = 64
+# fname = joinpath(OUTDIR, "orig_AMIS_model$(model_idx).jld2")
 
-compute_ess(res.psis_logws)
-logsumexp(res.psis_logws) .- log(length(res.psis_logws))
+# @load fname timed_res;
+# timed_res.time
+# res = timed_res.value;
 
-keep_dists = reduce(
-    vcat, [
-        [
-            MvNormal(gm.means[k], Matrix(inv(gm.chols[k])))
-            for k in 1:gm.K if gm.weights[k] > 0.02
-        ] for gm in res.gm_vec    
-    ]
-);
-length(keep_dists)
+# compute_ess(res.psis_logws)
+# logsumexp(res.psis_logws) .- log(length(res.psis_logws))
 
-Random.seed!(dir_idx*n_models + model_idx);
-@time keep_dists, viable_dists = init_dists(target, prior_sampler, prior_means, prior_vars, 50, 100, 2d; progress=true);
-length(viable_dists)
-length(keep_dists)
-round.(reduce(hcat, getproperty.(keep_dists, :μ))', digits=2)
+# keep_dists = reduce(
+#     vcat, [
+#         [
+#             MvNormal(gm.means[k], Matrix(inv(gm.chols[k])))
+#             for k in 1:gm.K if gm.weights[k] > 0.02
+#         ] for gm in res.gm_vec    
+#     ]
+# );
+# length(keep_dists)
 
-zs = reduce(hcat, [(dist.μ .- prior_means) ./ sqrt.(prior_vars) for dist in viable_dists]);
-summarystats(zs)
+# Random.seed!(dir_idx*n_models + model_idx);
+# @time keep_dists, viable_dists = init_dists(target, prior_sampler, prior_means, prior_vars, 50, 100, 2d; progress=true);
+# length(viable_dists)
+# length(keep_dists)
+# round.(reduce(hcat, getproperty.(keep_dists, :μ))', digits=2)
 
-include(joinpath(@__DIR__, "../plot_helpers.jl"));
-using Turing, MCMCChains
+# zs = reduce(hcat, [(dist.μ .- prior_means) ./ sqrt.(prior_vars) for dist in viable_dists]);
+# summarystats(zs)
 
-model_idx = 64;
-d = nparams[model_idx]
-dir_idx = 2
-genmodel_idx = feasible_idxs[dir_idx]
+# include(joinpath(@__DIR__, "../plot_helpers.jl"));
+# using Turing, MCMCChains
 
-OUTDIR = joinpath(@__DIR__, "output/data$(dir_idx)");
-mcmc_fname = joinpath(OUTDIR, "MCMC_model$(model_idx).jld2");
+# model_idx = 64;
+# d = nparams[model_idx]
+# dir_idx = 2
+# genmodel_idx = feasible_idxs[dir_idx]
 
-@nowarn_load mcmc_fname chn ess_df;
-trace = chn.value[:,1:d,1].data;
-# ess_df
-# f = plot_pairs(eachrow(trace), title="Dataset $dir_idx, model $model_idx", scatter_kwargs=(markersize=5, alpha=0.05))
+# OUTDIR = joinpath(@__DIR__, "output/data$(dir_idx)");
+# mcmc_fname = joinpath(OUTDIR, "MCMC_model$(model_idx).jld2");
 
-begin
-    i1 = 4
-    # i2 = 3
-    i2 = 7
-    f, ax, sc = scatter(trace[:,i1], trace[:,i2], color=:grey, alpha=0.05)
-    autolimits!(ax)
-    ax_limits = ax.finallimits[]
-    scatter!(
-        getindex.(getproperty.(keep_dists[1:50], :μ), i1), 
-        getindex.(getproperty.(keep_dists[1:50], :μ), i2), 
-        color=1:length(keep_dists[1:50]), colormap=Reverse(:viridis), alpha=0.8, markersize=8,
-    )
-    for (i, dist) in enumerate(keep_dists[1:50])
-        add_ellipse!(
-            ax, dist.μ, dist.Σ, i1, i2, 
-            color=i, colormap=Reverse(:viridis), colorrange=(1, length(keep_dists)), alpha=0.4
-        )
-    end
-    # scatter!(
-    #     getindex.(getproperty.(keep_dists, :μ), i1), 
-    #     getindex.(getproperty.(keep_dists, :μ), i2), 
-    #     alpha=0.4, markersize=6,
-    # )
-    limits!(ax, ax_limits)
-    display(current_figure())
-end
+# @nowarn_load mcmc_fname chn ess_df;
+# trace = chn.value[:,1:d,1].data;
+# # ess_df
+# # f = plot_pairs(eachrow(trace), title="Dataset $dir_idx, model $model_idx", scatter_kwargs=(markersize=5, alpha=0.05))
 
-hist(reduce(vcat, keep_dists .|> Base.Fix2(getproperty, :Σ) .|> diag))
+# begin
+#     i1 = 4
+#     # i2 = 3
+#     i2 = 7
+#     f, ax, sc = scatter(trace[:,i1], trace[:,i2], color=:grey, alpha=0.05)
+#     autolimits!(ax)
+#     ax_limits = ax.finallimits[]
+#     scatter!(
+#         getindex.(getproperty.(keep_dists[1:50], :μ), i1), 
+#         getindex.(getproperty.(keep_dists[1:50], :μ), i2), 
+#         color=1:length(keep_dists[1:50]), colormap=Reverse(:viridis), alpha=0.8, markersize=8,
+#     )
+#     for (i, dist) in enumerate(keep_dists[1:50])
+#         add_ellipse!(
+#             ax, dist.μ, dist.Σ, i1, i2, 
+#             color=i, colormap=Reverse(:viridis), colorrange=(1, length(keep_dists)), alpha=0.4
+#         )
+#     end
+#     # scatter!(
+#     #     getindex.(getproperty.(keep_dists, :μ), i1), 
+#     #     getindex.(getproperty.(keep_dists, :μ), i2), 
+#     #     alpha=0.4, markersize=6,
+#     # )
+#     limits!(ax, ax_limits)
+#     display(current_figure())
+# end
 
-model_idx = 8
-for dir_idx in 1:3
-    genmodel_idx = feasible_idxs[dir_idx]
-    OUTDIR = joinpath(@__DIR__, "output/data$(dir_idx)");
-    mcmc_fname = joinpath(OUTDIR, "MCMC_model$(model_idx).jld2");
-    @nowarn_load mcmc_fname chn ess_df;
-    trace = chn.value[:,1:d,1].data;
-    # ess_df
-    f = plot_pairs(eachrow(trace), title="Dataset $dir_idx, model $model_idx", scatter_kwargs=(markersize=5, alpha=0.05))
-    display(f)
-end
+# hist(reduce(vcat, keep_dists .|> Base.Fix2(getproperty, :Σ) .|> diag))
+
+# model_idx = 8
+# for dir_idx in 1:3
+#     genmodel_idx = feasible_idxs[dir_idx]
+#     OUTDIR = joinpath(@__DIR__, "output/data$(dir_idx)");
+#     mcmc_fname = joinpath(OUTDIR, "MCMC_model$(model_idx).jld2");
+#     @nowarn_load mcmc_fname chn ess_df;
+#     trace = chn.value[:,1:d,1].data;
+#     # ess_df
+#     f = plot_pairs(eachrow(trace), title="Dataset $dir_idx, model $model_idx", scatter_kwargs=(markersize=5, alpha=0.05))
+#     display(f)
+# end

@@ -6,9 +6,10 @@ seed = parse(Int64, ARGS[1])
 
 using PDMats, LogExpFunctions, PSIS
 
+@load joinpath(@__DIR__, "output/MAPs.jld2") model_fits;
+
 INFDIR = joinpath(@__DIR__, "output/seed$(seed)");
-OUTDIR = joinpath(@__DIR__, "output") # output directory
-@load "$OUTDIR/MAPs.jld2" model_fits;
+mkpath(INFDIR)
 
 function orig_AMIS(target, MAP, hess; Kmax=50, df=4)
     d = LogDensityProblems.dimension(target)

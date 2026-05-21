@@ -60,9 +60,10 @@ for model_idx in 1:n_models
     println("Model $(model_idx), $(timed_res.time/60) min")
 end
 
-exit()
+# exit()
 
-# Test
+# Playground
+
 # model_idx = 20;
 # fname = joinpath(OUTDIR, "laplace_IS_model$(model_idx).jld2");
 # @load fname timed_res;
@@ -72,13 +73,13 @@ exit()
 # compute_ess(timed_res.value.psis_logws)
 # timed_res.value.pareto_shape
 
-for dir_idx in 1:n_feasible
-    OUTDIR = joinpath(@__DIR__, "output/data$(dir_idx)");
-    n_isnan = 0
-    for model_idx in 1:n_models
-        fname = joinpath(OUTDIR, "laplace_IS_model$(model_idx).jld2")
-        @load fname timed_res
-        n_isnan += sum(isnan, timed_res.value.psis_logws)
-    end
-    display((dir_idx, n_isnan))
-end
+# for dir_idx in 1:n_feasible
+#     OUTDIR = joinpath(@__DIR__, "output/data$(dir_idx)");
+#     n_isnan = 0
+#     for model_idx in 1:n_models
+#         fname = joinpath(OUTDIR, "laplace_IS_model$(model_idx).jld2")
+#         @load fname timed_res
+#         n_isnan += sum(isnan, timed_res.value.psis_logws)
+#     end
+#     display((dir_idx, n_isnan))
+# end

@@ -1,1 +1,0 @@
-Example adapted from [Simpson et al. (2022)](https://doi.org/10.1016/j.jtbi.2021.110998).

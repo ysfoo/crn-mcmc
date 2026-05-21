@@ -1,3 +1,5 @@
+### Set `LOAD_VAR_RATIOS` to false if `plot_comparison.jl` has not been run (or run that script first).
+
 include(joinpath(@__DIR__, "setup.jl"));
 include(joinpath(@__DIR__, "../gaussian_mixtures.jl"));
 include(joinpath(@__DIR__, "../plot_helpers.jl"));
@@ -267,206 +269,205 @@ end
 # end
 
 
+## Single-model predictions
 
-### Single-model predictions
+# dir_idx = 25;
+# OUTDIR = joinpath(@__DIR__, "output/data$(dir_idx)");
+# genmodel_idx = feasible_idxs[dir_idx];
+# parameters(models[genmodel_idx])
+# data = all_data[genmodel_idx];
+# tuned_params[genmodel_idx]
+# ents[dir_idx], tvds[dir_idx]
 
-dir_idx = 25;
-OUTDIR = joinpath(@__DIR__, "output/data$(dir_idx)");
-genmodel_idx = feasible_idxs[dir_idx];
-parameters(models[genmodel_idx])
-data = all_data[genmodel_idx];
-tuned_params[genmodel_idx]
-ents[dir_idx], tvds[dir_idx]
+# n_plot = 10;
+# ps = parameters(models[end]);
+# pred_dim = 3; # adult population
 
-n_plot = 10;
-ps = parameters(models[end]);
-pred_dim = 3; # adult population
+# logZvec = BS_logZvecs[dir_idx];
+# pvec = exp.(logZvec .- logsumexp(logZvec));
+# to_plot = sortperm(pvec, rev=true)[1:n_plot];
+# marg_ps = [sum(pval for (i, pval) in enumerate(pvec) if any(parameters(models[i]) .=== p)) for p in ps[4:9]]
 
-logZvec = BS_logZvecs[dir_idx];
-pvec = exp.(logZvec .- logsumexp(logZvec));
-to_plot = sortperm(pvec, rev=true)[1:n_plot];
-marg_ps = [sum(pval for (i, pval) in enumerate(pvec) if any(parameters(models[i]) .=== p)) for p in ps[4:9]]
+# petab_probs = PEtabODEProblem.(create_petab_model.(models, Ref(data), Ref(u0)); odesolver=ODESolver(Rodas5P(), verbose=false));
+# t_span = (0, 20);
+# t_pred = range(0, 20, 81);
+# n_preds = 10^4;
 
-petab_probs = PEtabODEProblem.(create_petab_model.(models, Ref(data), Ref(u0)); odesolver=ODESolver(Rodas5P(), verbose=false));
-t_span = (0, 20);
-t_pred = range(0, 20, 81);
-n_preds = 10^4;
+# oprob_vec = [get_odeproblem(get_x(petab_prob), petab_prob)[1] for petab_prob in petab_probs];
+# param_idxs_vec = [map((x)->parameter_index(oprob, x).idx, parameters(model)) for (oprob, model) in zip(oprob_vec, models)];
 
-oprob_vec = [get_odeproblem(get_x(petab_prob), petab_prob)[1] for petab_prob in petab_probs];
-param_idxs_vec = [map((x)->parameter_index(oprob, x).idx, parameters(model)) for (oprob, model) in zip(oprob_vec, models)];
+# param_labels = [
+#     L"\delta_E", L"\delta_L", L"\delta_A", 
+#     L"\kappa_E", L"\kappa_L", L"\kappa_A"
+# ];
 
-param_labels = [
-    L"\delta_E", L"\delta_L", L"\delta_A", 
-    L"\kappa_E", L"\kappa_L", L"\kappa_A"
-];
+# COLORS = Makie.wong_colors()[[5, 1, 3, 4, 2]];
+# method_names = ["BIC", "Laplace IS", "Standard AMIS", "Robust AMIS", "Bridge sampling"];
 
-COLORS = Makie.wong_colors()[[5, 1, 3, 4, 2]];
-method_names = ["BIC", "Laplace IS", "Standard AMIS", "Robust AMIS", "Bridge sampling"];
+# line_alpha = 0.9; band_alpha = 0.4;
 
-line_alpha = 0.9; band_alpha = 0.4;
+# begin
+#     f = Figure(size=(1080, 1200))
 
-begin
-    f = Figure(size=(1080, 1200))
+#     for ax_i1 in 1:5
+#         for ax_i2 in 1:2
+#             ax_i = (ax_i1-1)*2 + ax_i2
+#             model_idx = to_plot[ax_i]
 
-    for ax_i1 in 1:5
-        for ax_i2 in 1:2
-            ax_i = (ax_i1-1)*2 + ax_i2
-            model_idx = to_plot[ax_i]
+#             BS_all_params = Vector{Float64}[];
+#             mcmc_fname = joinpath(OUTDIR, "chains_model$(model_idx).jld2");
+#             d = nparams[model_idx]
+#             @load mcmc_fname chn;
+#             trace = permutedims(chn.value[:,1:d,:].data, [2, 1, 3]);
+#             BS_samples = reshape(trace, d, :);
+#             append!(BS_all_params, eachcol(BS_samples))
 
-            BS_all_params = Vector{Float64}[];
-            mcmc_fname = joinpath(OUTDIR, "chains_model$(model_idx).jld2");
-            d = nparams[model_idx]
-            @load mcmc_fname chn;
-            trace = permutedims(chn.value[:,1:d,:].data, [2, 1, 3]);
-            BS_samples = reshape(trace, d, :);
-            append!(BS_all_params, eachcol(BS_samples))
+#             BS_single_preds = [
+#                 begin
+#                     θ = BS_all_params[i]
+#                     oprob = oprob_vec[model_idx]
+#                     param_idxs = param_idxs_vec[model_idx]
+#                     oprob.p[param_idxs] .= exp10.(θ)
+#                     sol = solve(oprob, Rodas5P(); tspan=t_span, saveat=t_pred);
+#                     getindex.(sol.u, pred_dim)
+#                 end for i in 1:15000
+#             ];
+#             BS_single_predmat = reduce(hcat, BS_single_preds);
+#             BS_lo_preds = quantile.(eachrow(BS_single_predmat), 0.05);
+#             BS_med_preds = quantile.(eachrow(BS_single_predmat), 0.5);
+#             BS_hi_preds = quantile.(eachrow(BS_single_predmat), 0.95);
 
-            BS_single_preds = [
-                begin
-                    θ = BS_all_params[i]
-                    oprob = oprob_vec[model_idx]
-                    param_idxs = param_idxs_vec[model_idx]
-                    oprob.p[param_idxs] .= exp10.(θ)
-                    sol = solve(oprob, Rodas5P(); tspan=t_span, saveat=t_pred);
-                    getindex.(sol.u, pred_dim)
-                end for i in 1:15000
-            ];
-            BS_single_predmat = reduce(hcat, BS_single_preds);
-            BS_lo_preds = quantile.(eachrow(BS_single_predmat), 0.05);
-            BS_med_preds = quantile.(eachrow(BS_single_predmat), 0.5);
-            BS_hi_preds = quantile.(eachrow(BS_single_predmat), 0.95);
+#             loc = f[ax_i1,ax_i2]
+#             ax = Axis(
+#                 loc,
+#                 xlabel = ax_i1==5 ? "Time (a.u.)" : "", xlabelsize=18, 
+#                 xticklabelsvisible = ax_i1==5,
+#                 yticklabelsvisible = ax_i2==1,
+#                 limits = ((-0.5, 20.5), (2.1, 5.1)),
+#                 xticklabelsize=16,  yticklabelsize=16,
+#             )
+#             scatter!(data.t, getproperty(data, propertynames(data)[pred_dim]), color=:grey10, markersize=8)
 
-            loc = f[ax_i1,ax_i2]
-            ax = Axis(
-                loc,
-                xlabel = ax_i1==5 ? "Time (a.u.)" : "", xlabelsize=18, 
-                xticklabelsvisible = ax_i1==5,
-                yticklabelsvisible = ax_i2==1,
-                limits = ((-0.5, 20.5), (2.1, 5.1)),
-                xticklabelsize=16,  yticklabelsize=16,
-            )
-            scatter!(data.t, getproperty(data, propertynames(data)[pred_dim]), color=:grey10, markersize=8)
+#             band!(t_pred, BS_lo_preds, BS_hi_preds, color=COLORS[end], alpha=band_alpha)
+#             lines!(
+#                 t_pred, BS_lo_preds,
+#                 color=(COLORS[end], line_alpha), linestyle=Linestyle([0, 0, 3, 6]), linewidth=3
+#             )
+#             lines!(
+#                 t_pred, BS_hi_preds,
+#                 color=(COLORS[end], line_alpha), linestyle=Linestyle([0, 0, 3, 6]), linewidth=3
+#             )
+#             lines!(t_pred, BS_med_preds, color=COLORS[end], alpha=line_alpha, linewidth=3)
+#         end
+#     end
 
-            band!(t_pred, BS_lo_preds, BS_hi_preds, color=COLORS[end], alpha=band_alpha)
-            lines!(
-                t_pred, BS_lo_preds,
-                color=(COLORS[end], line_alpha), linestyle=Linestyle([0, 0, 3, 6]), linewidth=3
-            )
-            lines!(
-                t_pred, BS_hi_preds,
-                color=(COLORS[end], line_alpha), linestyle=Linestyle([0, 0, 3, 6]), linewidth=3
-            )
-            lines!(t_pred, BS_med_preds, color=COLORS[end], alpha=line_alpha, linewidth=3)
-        end
-    end
+#     Label(f[0,1:2], L"$\textbf{Single‐model predictions for data generated with death mechanisms }\delta_E,\, \delta_L,\, \delta_A,\, \kappa_L$\\$\textbf{under top 10 models ranked by bridge sampling}$", fontsize=20)
+#     pop_name = ["Egg", "Larva", "Adult"][pred_dim]
+#     Label(f[1:5,0], "$(pop_name) population size (a.u.)", fontsize=18, rotation = pi/2)
 
-    Label(f[0,1:2], L"$\textbf{Single‐model predictions for data generated with death mechanisms }\delta_E,\, \delta_L,\, \delta_A,\, \kappa_L$\\$\textbf{under top 10 models ranked by bridge sampling}$", fontsize=20)
-    pop_name = ["Egg", "Larva", "Adult"][pred_dim]
-    Label(f[1:5,0], "$(pop_name) population size (a.u.)", fontsize=18, rotation = pi/2)
+#     Legend(
+#         f[1:5,3],
+#         [
+#             MarkerElement(color=:grey10, marker=:circle, markersize=10),
+#             LineElement(color=(COLORS[end], line_alpha), linewidth=2), 
+#             PolyElement(color=(COLORS[end], band_alpha), strokewidth=2, strokecolor=(COLORS[end], line_alpha), linestyle=:dash)
+#         ],
+#         ["Data"; "Posterior median"; "90% credible interval"],
+#         halign=:center, valign=:center,
+#         labelsize=18, tellheight=false, tellwidth=false,
+#     )
 
-    Legend(
-        f[1:5,3],
-        [
-            MarkerElement(color=:grey10, marker=:circle, markersize=10),
-            LineElement(color=(COLORS[end], line_alpha), linewidth=2), 
-            PolyElement(color=(COLORS[end], band_alpha), strokewidth=2, strokecolor=(COLORS[end], line_alpha), linestyle=:dash)
-        ],
-        ["Data"; "Posterior median"; "90% credible interval"],
-        halign=:center, valign=:center,
-        labelsize=18, tellheight=false, tellwidth=false,
-    )
+#     colsize!(f.layout, 3, Auto(0.5))
 
-    colsize!(f.layout, 3, Auto(0.5))
+#     display(f)
+#     save_dir = mkpath(joinpath(@__DIR__, "imgs/BS_preds/"));
+#     save("$(save_dir)/data$(dir_idx).png", f, px_per_unit=4);
+# end
 
-    display(f)
-    save_dir = mkpath(joinpath(@__DIR__, "imgs/BS_preds/"));
-    save("$(save_dir)/data$(dir_idx).png", f, px_per_unit=4);
-end
+## Playground
 
-# Playground
+# begin
+#     f = Figure()
+#     Label(f[1, 1, Top()], L"\textbf{Reconstructed }\mathbf{X_1}")
+#     display(f)
+# end
 
-begin
-    f = Figure()
-    Label(f[1, 1, Top()], L"\textbf{Reconstructed }\mathbf{X_1}")
-    display(f)
-end
+# dir_idx = 43;
+# model_idx = genmodel_idx = feasible_idxs[dir_idx];
+# OUTDIR = joinpath(@__DIR__, "output/data$(dir_idx)");
 
-dir_idx = 43;
-model_idx = genmodel_idx = feasible_idxs[dir_idx];
-OUTDIR = joinpath(@__DIR__, "output/data$(dir_idx)");
+# fname = joinpath(OUTDIR, "chains_model$(genmodel_idx).jld2");
+# @load fname chn;
+# describe(chn)
+# [exp10.(mean(chn).nt.mean) tuned_params[genmodel_idx]]
 
-fname = joinpath(OUTDIR, "chains_model$(genmodel_idx).jld2");
-@load fname chn;
-describe(chn)
-[exp10.(mean(chn).nt.mean) tuned_params[genmodel_idx]]
+# d = length(parameters(models[genmodel_idx]))
+# trace = permutedims(chn.value[:,1:d,:].data, [2, 1, 3]);
+# X = reshape(trace, d, :);
 
-d = length(parameters(models[genmodel_idx]))
-trace = permutedims(chn.value[:,1:d,:].data, [2, 1, 3]);
-X = reshape(trace, d, :);
+# @nowarn_load "$OUTDIR/MAP.jld2" model_fits;
+# @load "$OUTDIR/MAP_hess.jld2" MAP_hessians;
+# MAP_est = model_fits[model_idx].xmin;
+# hess = MAP_hessians[model_idx];
+# Σ = inv(PDMat(hermitianpart!(hess)));
 
-@nowarn_load "$OUTDIR/MAP.jld2" model_fits;
-@load "$OUTDIR/MAP_hess.jld2" MAP_hessians;
-MAP_est = model_fits[model_idx].xmin;
-hess = MAP_hessians[model_idx];
-Σ = inv(PDMat(hermitianpart!(hess)));
+# f = plot_pairs(
+#     # eachcol(exp10.(X)),
+#     eachcol(X),
+#     [MAP_est], [Σ],
+#     # title="Posterior\nsamples under model $model_idx for data generated from model $genmodel_idx",
+#     figsize=(120*d+180, 120*d+40),
+#     scatter_kwargs=(color=(:grey, 0.01), markersize=4),
+#     ellipse_kwargs=(color=Makie.wong_colors()[2],),
+#     hist_kwargs=(color=:grey,)
+# ); 
+# display(current_figure())
 
-f = plot_pairs(
-    # eachcol(exp10.(X)),
-    eachcol(X),
-    [MAP_est], [Σ],
-    # title="Posterior\nsamples under model $model_idx for data generated from model $genmodel_idx",
-    figsize=(120*d+180, 120*d+40),
-    scatter_kwargs=(color=(:grey, 0.01), markersize=4),
-    ellipse_kwargs=(color=Makie.wong_colors()[2],),
-    hist_kwargs=(color=:grey,)
-); 
-display(current_figure())
+# dir_idx = 12
+# OUTDIR = joinpath(@__DIR__, "output/data$(dir_idx)");
 
-dir_idx = 12
-OUTDIR = joinpath(@__DIR__, "output/data$(dir_idx)");
+# length(BS_logZvecs)
+# BS_logZvecs[dir_idx][63]
 
-length(BS_logZvecs)
-BS_logZvecs[dir_idx][63]
+# model_idx = 63
 
-model_idx = 63
+# fname = "$OUTDIR/robust_AMIS_model$model_idx.jld2"
+# @load fname timed_res;
+# timed_res.time
+# timed_res.value.unweighted_samples;
 
-fname = "$OUTDIR/robust_AMIS_model$model_idx.jld2"
-@load fname timed_res;
-timed_res.time
-timed_res.value.unweighted_samples;
+# fname = "$OUTDIR/orig_AMIS_model$model_idx.jld2"
+# @load fname timed_res;
+# timed_res.time
+# timed_res.value.unweighted_samples;
 
-fname = "$OUTDIR/orig_AMIS_model$model_idx.jld2"
-@load fname timed_res;
-timed_res.time
-timed_res.value.unweighted_samples;
+# fname = "$OUTDIR/laplace_IS_model$model_idx.jld2"
+# @load fname timed_res;
+# timed_res.time
+# timed_res.value.unweighted_samples;
 
-fname = "$OUTDIR/laplace_IS_model$model_idx.jld2"
-@load fname timed_res;
-timed_res.time
-timed_res.value.unweighted_samples;
+# sAMIS_times = Float64[];
+# @showprogress for dir_idx in 1:n_feasible
+#     sAMIS_time = 0.
+#     OUTDIR = joinpath(@__DIR__, "output/data$(dir_idx)");
+#     for model_idx in 1:n_models
+#         fname = "$OUTDIR/orig_AMIS_model$model_idx.jld2"
+#         @load fname timed_res
+#         sAMIS_time += timed_res.time / 60
+#     end
+#     push!(sAMIS_times, sAMIS_time)
+# end
+# summarystats(rAMIS_times)
 
-sAMIS_times = Float64[];
-@showprogress for dir_idx in 1:n_feasible
-    sAMIS_time = 0.
-    OUTDIR = joinpath(@__DIR__, "output/data$(dir_idx)");
-    for model_idx in 1:n_models
-        fname = "$OUTDIR/orig_AMIS_model$model_idx.jld2"
-        @load fname timed_res
-        sAMIS_time += timed_res.time / 60
-    end
-    push!(sAMIS_times, sAMIS_time)
-end
-summarystats(rAMIS_times)
-
-rAMIS_times = Float64[];
-@showprogress for dir_idx in 1:n_feasible
-    rAMIS_time = 0.
-    OUTDIR = joinpath(@__DIR__, "output/data$(dir_idx)");
-    for model_idx in 1:n_models
-        fname = "$OUTDIR/robust_AMIS_model$model_idx.jld2"
-        @load fname timed_res
-        rAMIS_time += timed_res.time / 60
-    end
-    push!(rAMIS_times, rAMIS_time)
-end
-summarystats(rAMIS_times)
+# rAMIS_times = Float64[];
+# @showprogress for dir_idx in 1:n_feasible
+#     rAMIS_time = 0.
+#     OUTDIR = joinpath(@__DIR__, "output/data$(dir_idx)");
+#     for model_idx in 1:n_models
+#         fname = "$OUTDIR/robust_AMIS_model$model_idx.jld2"
+#         @load fname timed_res
+#         rAMIS_time += timed_res.time / 60
+#     end
+#     push!(rAMIS_times, rAMIS_time)
+# end
+# summarystats(rAMIS_times)

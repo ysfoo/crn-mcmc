@@ -14,7 +14,6 @@ LOAD_MAP = false;
 using PEtab, OrdinaryDiffEq, Optim
 using JLD2, ProgressMeter, Random, Suppressor
 
-# @load joinpath(@__DIR__, "params.jld2") tuned_params;
 @load joinpath(@__DIR__, "data.jld2") all_data;
 
 const DEFAULT_OPT = Optim.Options(iterations = 1000, show_trace = false, show_warnings = false,

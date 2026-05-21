@@ -6,8 +6,7 @@ seed = parse(Int64, ARGS[1])
 
 using PDMats, LogExpFunctions, PSIS, ProgressMeter
 
-OUTDIR = joinpath(@__DIR__, "output") # output directory
-@load "$OUTDIR/MAPs.jld2" model_fits;
+@load joinpath(@__DIR__, "output/MAPs.jld2") model_fits;
 
 function laplace_IS(target, MAP, hess, n_samples; df=4)
     Σ = inv(PDMat(hermitianpart!(hess)))
@@ -34,6 +33,7 @@ n_samples = 10^6
 # @showprogress for seed in 1:100
 begin
     INFDIR = joinpath(@__DIR__, "output/seed$(seed)");
+    mkpath(INFDIR)
     for model_sym in model_syms
         fname = joinpath(INFDIR, "laplace_IS_$(model_sym).jld2")
         target = target_dict[model_sym]

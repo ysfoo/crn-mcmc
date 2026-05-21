@@ -1,4 +1,4 @@
-### Set all variables named `LOAD_XXX` to false to compute outputs from evidence estimation, instead of loading saved results.
+### Set all variables named `LOAD_XXX` to false to compute outputs from evidence estimation (for first run), instead of loading saved results.
 
 include(joinpath(@__DIR__, "setup.jl"));
 include(joinpath(@__DIR__, "../gaussian_mixtures.jl"));
@@ -244,46 +244,10 @@ summarystats(hrs_mat[5,:]) # BS
 
 ((MCMC_times .|> sum) |> mean) / 60 / mean(hrs_mat[5,:])
 
-length(rAMIS_logZvecs)
-length(MCMC_maxrhat)
-plot_order = sortperm(abs.(rAMIS_errors));
-
-scatter(
-    vec(rAMIS_essmat')[plot_order], reduce(vcat, MCMC_maxrhat)[plot_order],
-    color=rAMIS_errors[plot_order], colorrange=(-1.1, 1.1), colormap=:curl,
-    axis=(xscale=log10,)
-)
-
-scatter(vec(rAMIS_essmat')[plot_order], rAMIS_errors[plot_order])
-
-scatter(vec(rAMIS_khatmat')[plot_order], rAMIS_errors[plot_order])
-
-vec(rAMIS_essmat')[abs.(rAMIS_errors) .> 0.5]
-
-summarystats(rAMIS_essmat)
-sum(rAMIS_essmat .< 1e5)
-sum(rAMIS_essmat .< 1e4)
-
-sum(rAMIS_khatmat .> 0.9)
-sum(rAMIS_khatmat .> 1)
-
-
-quantile.(Ref(rAMIS_errors .|> abs), 0.05:0.05:0.95)
-mean(LIS_errors .|> abs .< 0.1)
-mean(orig_errors .|> abs .< 0.1)
-mean(rAMIS_errors .|> abs .< 0.1)
-
-mean(LIS_essmat .> 1e4)
-mean(orig_essmat .> 1e4)
-mean(rAMIS_essmat .> 1e4)
-
 # summarystats(BIC_tvds)
 # summarystats(LIS_tvds)
 summarystats(orig_tvds)
 summarystats(rAMIS_tvds)
-
-
-
 
 COLORS = [:grey60; Makie.wong_colors()[[1, 3, 4, 2]]];
 method_names = ["BIC", "Laplace IS", "Standard AMIS", "Robust AMIS", "Bridge sampling"];
@@ -307,18 +271,6 @@ begin
 
     cats = repeat(1:4, inner=n_feasible)
 
-    # ax11 = Axis(
-    #     f[1,1],
-    #     yticklabelsize=16,
-    #     limits=(nothing, (-0.01, nothing)),
-    #     ylabel="Total variation distance\nfrom bridge sampling", ylabelsize=18,
-    #     title="Discrepancy of posterior distributions\nfrom gold standard", titlesize=18,
-    #     # xticks=(1:4, ["BIC", "Laplace IS", "Standard AMIS", "Robust AMIS"]),
-    #     # xticklabelrotation=π/6, 
-    #     xticks=(1:4, ["BIC", "Laplace\nIS", "Standard\nAMIS", "Robust\nAMIS"]),
-    #     xticklabelsize=18, xgridvisible=true
-    # )
-
     ax11 = Axis(
         f[1,1],
         yticklabelsize=16,
@@ -330,21 +282,6 @@ begin
     )
     
     for i in 1:4
-        # rainclouds!(
-        #     fill(i, n_feasible), all_tvds[i],
-        #     color=COLORS[i],
-        #     plot_boxplots=false, 
-        #     jitter_width=0.2, markersize=6,
-        #     show_median=false, 
-        #     clouds=hist, cloud_width=0.7*tvd_heights[i], gap=0.0, dodge_gap=0.1, side_nudge=0.125, hist_bins=tvd_bins,
-        #     # clouds=violin, cloud_width=1, violin_limits=(0, Inf),
-            
-        # )
-        # hist!(
-        #     all_tvds[i], color=COLORS[i], 
-        #     scale_to=-0.8*tvd_heights[i], offset=i, 
-        #     direction=:x, bins=tvd_bins
-        # )
         scatter!(
             hrs_mat[i,:], all_tvds[i], alpha=0.8,
             color=COLORS[i], marker=MARKERS[i], label=method_names[i],
@@ -391,14 +328,6 @@ begin
     )
     
     for i in 1:3
-        # rainclouds!(
-        #     fill(i, n_feasible*n_models), all_essvecs[i],
-        #     color=COLORS[i+1], markersize=2,
-        #     plot_boxplots=false, 
-        #     jitter_width=0.2,
-        #     show_median=false, 
-        #     clouds=hist, cloud_width=0.7*ess_heights[i], gap=0.0, dodge_gap=0.1, side_nudge=0.125, hist_bins=logrange(1, 1e6, 31)[4:end]
-        # )
         hist!(
             all_essvecs[i], color=COLORS[i+1], 
             scale_to=-0.9*ess_heights[i], offset=i, 
@@ -447,8 +376,6 @@ begin
     end
 
     g = GridLayout(f[3, :])
-    # Box(f[1:2, :], color=(:orange, 0.5))
-    # Box(f[3, :], color=(:red, 0.5))
     for (i, pvecs_other) in enumerate([pvecs_BIC, pvecs_LIS, pvecs_orig, pvecs_rAMIS])
         ax = Axis(
             g[2,i], aspect=DataAspect(), xticks=0:0.2:1,
@@ -544,11 +471,42 @@ begin
     display(f)
 end
 
-
 # exit()
-nothing
 
-# Tmp code
+## Playground
+
+# length(rAMIS_logZvecs)
+# length(MCMC_maxrhat)
+# plot_order = sortperm(abs.(rAMIS_errors));
+
+# scatter(
+#     vec(rAMIS_essmat')[plot_order], reduce(vcat, MCMC_maxrhat)[plot_order],
+#     color=rAMIS_errors[plot_order], colorrange=(-1.1, 1.1), colormap=:curl,
+#     axis=(xscale=log10,)
+# )
+
+# scatter(vec(rAMIS_essmat')[plot_order], rAMIS_errors[plot_order])
+
+# scatter(vec(rAMIS_khatmat')[plot_order], rAMIS_errors[plot_order])
+
+# vec(rAMIS_essmat')[abs.(rAMIS_errors) .> 0.5]
+
+# summarystats(rAMIS_essmat)
+# sum(rAMIS_essmat .< 1e5)
+# sum(rAMIS_essmat .< 1e4)
+
+# sum(rAMIS_khatmat .> 0.9)
+# sum(rAMIS_khatmat .> 1)
+
+
+# quantile.(Ref(rAMIS_errors .|> abs), 0.05:0.05:0.95)
+# mean(LIS_errors .|> abs .< 0.1)
+# mean(orig_errors .|> abs .< 0.1)
+# mean(rAMIS_errors .|> abs .< 0.1)
+
+# mean(LIS_essmat .> 1e4)
+# mean(orig_essmat .> 1e4)
+# mean(rAMIS_essmat .> 1e4)
 
 # scatter(reduce(vcat, eachrow(rAMIS_essmat)), rAMIS_errors)
 
