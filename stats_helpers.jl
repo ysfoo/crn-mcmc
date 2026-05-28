@@ -4,6 +4,7 @@ using Distributions, Random, StatsBase
 
 # Effective sample size
 function compute_ess(logws)
+    logws[.!isfinite.(logws)] .= -Inf
     return exp(2logsumexp(logws) - logsumexp(2 .* logws))
 end
 
