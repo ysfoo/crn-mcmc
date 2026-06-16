@@ -1,4 +1,4 @@
-include(joinpath(@__DIR__, "../PS_functions.jl"));
+include(joinpath(@__DIR__, "../SMC_functions.jl"));
 include(joinpath(@__DIR__, "../ODE_LDP.jl"));
 include(joinpath(@__DIR__, "setup.jl"));
 
@@ -106,38 +106,28 @@ end
 slab_prior = Normal(μ_slab, σ_slab)
 noise_prior = Normal(μ_noise, σ_noise)
 
-n_priors = 25;
 esize = 4;
 μ_spike = -16;
 σ_spike = σ_slab;
 
-μ0, σ0 = -4., 3.;
-
-function interpolate_ss(iter, μ_trg, σ_trg)
+function interpolate_ss(idx, μ0, σ0, μ_trg, σ_trg, temper_prior)
+    if n_priors == 1
+        return temper_prior ? Normal(μ0, σ0) : Normal(μ_trg, σ_trg)
+    end
     n_inter = n_priors-1
     r = σ_trg/σ0
-    σ = exp(log(σ0) + (iter/n_inter)*log(r))
-    μ = μ0 + (1-r^(iter/n_inter))/(1-r)*(μ_trg - μ0)
+    σ = exp(log(σ0) + (idx/n_inter)*log(r))
+    μ = μ0 + (1-r^(idx/n_inter))/(1-r)*(μ_trg - μ0)
     return Normal(μ, σ)
 end
 
-slab_seq = interpolate_ss.(0:(n_priors-1), μ_slab, σ_slab);
-spike_seq = interpolate_ss.(0:(n_priors-1), μ_spike, σ_spike);
-thres_vec = 0.5 .* (getproperty.(slab_seq, :μ) .+ getproperty.(spike_seq, :μ));
+function sq_hellinger(dist1, dist2)
+    avg_var = (dist1.σ^2 + dist2.σ^2) / 2
+    overlap = sqrt(dist1.σ*dist2.σ/avg_var) * exp(-(dist1.μ - dist2.μ)^2/(8avg_var))
+    return 1 - overlap
+end
 
-logprior_funcs = [
-    begin
-        mix_prior = MixtureModel([slab, spike])
-        dists = [
-            fill(slab_prior, length(std_idxs));
-            fill(mix_prior,  length(ss_idxs));
-            noise_prior
-        ]
-        (θ) -> sum(logpdf(dist, val) for (dist, val) in zip(dists, θ))
-    end for (slab, spike) in zip(slab_seq, spike_seq)
-];
-
-function make_ldp(logprior_func::Function, β::Float64)
+function make_ldp(logprior_func::Function, β::Float64, loglike_offset::Function=(θ)->0.)
     function loglike_func(sol, θ::AbstractVector{T}) where T
         σ = exp10(θ[noise_idx])
         ll = T(-n_u*n_obs*log(2π)/2)
@@ -149,7 +139,7 @@ function make_ldp(logprior_func::Function, β::Float64)
                 ll -= ((y_obs - y_pred) / s)^2 / 2 + log(s)
             end
         end
-        return ll * β
+        return (ll + loglike_offset(θ)) * β
     end
     return OrdinaryDiffEqLDP(
         base_oprob, param_idxs, ode_params!, logprior_func, loglike_func, n_θ;
@@ -166,52 +156,128 @@ function partition_by_thres(states::AbstractVector, thres::Float64)
     return classes
 end
 
-function should_rerun_nuts(
-    particles, prev_states, iter, targetinfo;
-    min_class_frac = 0.01, min_count = 20, verbose = 0
+function no_rerun(particles, prev_states, iter, npass, targetinfo; verbose = 0)
+    return false
+end
+
+function rerun_2(particles, prev_states, iter, npass, targetinfo; verbose = 0)
+    return npass < 2
+end
+
+function rerun_by_kendall!(
+    particles, prev_states, iter, npass, targetinfo;
+    min_count = 20, verbose = 0, update_stepsize=false
 )
     pop_size = length(particles)
-    min_count = max(min_count, floor(Int, min_class_frac * pop_size))
+    if update_stepsize
+        mean_acc_rate = mean(p.info.curr_acc_rate for p in particles)
+        new_stepsize = particles[1].stepsize * 1.5^((mean_acc_rate-0.8)/0.2)
+        for i in 1:pop_size
+            particle = particles[i]
+            particles[i] = (@set particle.stepsize = new_stepsize)
+        end
+    end
+
     D = length(prev_states[1])
     thres = thres_vec[targetinfo[1]]
 
     curr_states = [p.state for p in particles]
     prev_classes = partition_by_thres(prev_states, thres)
-    
-    for (key, pre_idxs) in prev_classes
-        length(pre_idxs) < min_count && continue
 
+    for (key, pre_idxs) in prev_classes
+        n_idxs = length(pre_idxs)
+        n_idxs < min_count && continue
+        ties = collect(n for (_, n) in countmap(prev_states[pre_idxs]) if n > 1)
+        pairs = n_idxs*(n_idxs-1)÷2
+        tied_pairs = sum(t*(t-1)÷2 for t in ties; init=0)
+        # cor_thres = kendall_qt(n_idxs, 1e-4, ties) + 0.2
+        cor_thres = 0.2 + 0.8 * sqrt(min_count / n_idxs)
         for d in 1:D
             c = corkendall(getindex.(prev_states[pre_idxs], d), getindex.(curr_states[pre_idxs], d))
-            if c > 0.5
+            if c > cor_thres
                 if verbose > 0
-                    @info "Rerun due to $key" length(pre_idxs) d c
+                    @info "Rerun due to $key, dimension $d" length(pre_idxs) (n_idxs, tied_pairs) (c, cor_thres)
                 end
                 return true
             end
         end
-    end 
+    end
     return false
 end
 
-μ_init = [fill(μ_slab, length(std_idxs)); fill(μ0, length(ss_idxs)); μ_noise];
-σ_init = [fill(σ_slab, length(std_idxs)); fill(σ0, length(ss_idxs)); σ_noise];
-init_dist = MvNormal(μ_init, σ_init);
-init_sampler = (rng) -> rand(rng, init_dist);
+### Configure run
 
-@info "Threads" LinearAlgebra.BLAS.get_num_threads() Threads.nthreads()
-flush(stdout)
-flush(stderr)
+μ0, σ0 = -8., 4.;
+n_priors = 1;
 
-pop_size = 10000; target_ess = 20000; init_pop_size = 40000;
-vid_path = mkpath(joinpath(@__DIR__, "imgs/PS0/data$(dir_idx)"));
-fname = joinpath(@__DIR__, "output/data$(dir_idx)/PS0.jld2");
-run_PS(
-    pop_size, target_ess, init_sampler, logprior_funcs, make_ldp, nuts_move, should_rerun_nuts, fname;
-    init_stepsize=1e-1, init_pop_size=init_pop_size,
-    verbose=1, vid_path=vid_path, make_fig=make_fig,
-    parallel=true, pbar_lines=20,
-    # parallel=false, 
+# A. Temper likelihood and prior, adapt # NUTS iterations, particle-specific step size
+# run_str = "SMC662"
+# temper_prior = true;
+# move_func = nuts_move;
+# rerun_func = rerun_by_kendall!;
+# ldp_builder = (logprior_func, β) -> make_ldp(logprior_func, β, θ -> logprior_funcs[end](θ) - logprior_funcs[begin](θ));
+
+# B. Temper likelihood only, adapt # NUTS iterations, particle-specific step size
+# run_str = "SMC262"
+# temper_prior = false;
+# move_func = nuts_move;
+# rerun_func = rerun_by_kendall!;
+# ldp_builder = make_ldp;
+
+# C. Temper likelihood and prior, 2 * 6 NUTS iterations, particle-specific step size
+# run_str = "SMC602"
+# temper_prior = true;
+# move_func = (rng, particle, target) -> nuts_move(rng, particle, target; n_nuts=6);
+# rerun_func = (particles, prev_states, iter, npass, targetinfo) -> npass < 2;
+# ldp_builder = (logprior_func, β) -> make_ldp(logprior_func, β, θ -> logprior_funcs[end](θ) - logprior_funcs[begin](θ));
+
+# D. Temper likelihood and prior, adapt # NUTS iterations, shared step size
+run_str = "SMC660"
+temper_prior = true;
+move_func = (rng, particle, target) -> nuts_move(rng, particle, target; adapt_stepsize_func=no_adapt_func);
+rerun_func = (
+    (particles, prev_states, iter, npass, targetinfo); verbose 
+    -> rerun_by_kendall!(particles, prev_states, iter, npass, targetinfo; verbose, update_stepsize=true)
 );
+ldp_builder = (logprior_func, β) -> make_ldp(logprior_func, β, θ -> logprior_funcs[end](θ) - logprior_funcs[begin](θ));
 
+### End configure
 
+slab_seq = interpolate_ss.(0:(n_priors-1), μ0, σ0, μ_slab, σ_slab, temper_prior);
+spike_seq = interpolate_ss.(0:(n_priors-1), μ0, σ0, μ_spike, σ_spike, temper_prior);
+thres_vec = 0.5 .* (getproperty.(slab_seq, :μ) .+ getproperty.(spike_seq, :μ))
+logprior_funcs = [
+    begin
+        mix_prior = MixtureModel([slab, spike])
+        dists = [
+            fill(slab_prior, length(std_idxs));
+            fill(mix_prior,  length(ss_idxs));
+            noise_prior
+        ]
+        (θ) -> sum(logpdf(dist, val) for (dist, val) in zip(dists, θ))
+    end for (slab, spike) in zip(slab_seq, spike_seq)
+];
+init_dists = begin
+    mix_prior = MixtureModel([slab_seq[1], spike_seq[1]])
+    [
+        fill(slab_prior, length(std_idxs));
+        fill(mix_prior,  length(ss_idxs));
+        noise_prior
+    ];
+end
+init_sampler = (rng) -> rand.(Ref(rng), init_dists);
+
+β_thres_zero(j) = 0.
+
+# pop_size = 1000; target_ess = 800; init_pop_size = 1000;
+pop_size = 5000; target_ess = 4000; init_pop_size = 5000;
+
+fname = joinpath(@__DIR__, "output/data$(dir_idx)/$(run_str).jld2");
+# vid_path = joinpath(@__DIR__, "imgs/$(run_str)/data$(dir_idx)");
+# mkpath(vid_path)
+run_SMC(
+    pop_size, target_ess, init_sampler, logprior_funcs, ldp_builder, move_func, rerun_func, fname;
+    init_stepsize=1e-1, init_pop_size=init_pop_size,
+    β_thres_func=β_thres_zero, verbose=1, #vid_path=vid_path, make_fig=make_fig,
+    parallel=true, pbar_lines=20,
+);

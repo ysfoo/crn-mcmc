@@ -67,8 +67,26 @@ function extract_logp(chn::Chains)
     return collect(vec(chn[sym]))
 end
 
-# LogDensityProblem for Distribution
 
+# Approximate upper quantile of Kendall correlation coefficient given sample size and significance level
+function kendall_qt(n, sig, ties=Int64[])
+    sum1 = sum(t*(t-1) for t in ties if t > 1; init=0)
+    sum2 = sum(t*(t-1)*(2t+5) for t in ties if t > 1; init=0)
+    opairs = n*(n-1)
+    v = (2 * (opairs*(2n + 5) - sum2)) / (9*opairs*(opairs - sum1))
+    q = quantile(Normal(), 1 - sig)
+    return q*sqrt(v)
+end
+
+
+# function kendall_qt_old(n, sig)
+#     v = 2 * (2*n + 5) / (9 * n * (n - 1))
+#     q = quantile(Normal(), 1 - sig)
+#     return q*sqrt(v)
+# end
+
+
+## LogDensityProblem for Distribution
 using Distributions, LogDensityProblems, LogDensityProblemsAD
 import ForwardDiff
 
@@ -79,8 +97,7 @@ LogDensityProblems.logdensity(dist::Distribution, x)  = logpdf(dist, x)
 make_ldprob(dist::Distribution) = ADgradient(:ForwardDiff, dist)
 
 
-# LogDensityProblem for generic logpdf
-
+## LogDensityProblem for generic logpdf
 struct BasicLDP{F}
     f::F
     d::Int
@@ -90,8 +107,8 @@ LogDensityProblems.capabilities(::Type{<:BasicLDP}) = LogDensityProblems.LogDens
 LogDensityProblems.dimension(ldp::BasicLDP)      = ldp.d
 LogDensityProblems.logdensity(ldp::BasicLDP, x)  = ldp.f(x)
 
-# LogDensityProblem for tuple of distributions
 
+## LogDensityProblem for tuple of distributions
 struct PriorLogDensity{V<:AbstractVector{<:UnivariateDistribution}}
     dists::V
 end
