@@ -60,14 +60,10 @@ function bridge_sampling(target, d, chn, bridge_idxs, fit_idxs)
     return LML_mix
 end
 
-# 5 chains, 15k samples total
-# Use 5k as bridge_idxs, 10k as fit_idxs
-bridge_idxs = filter(x -> mod(x, 3) == 0, 1:15000)
-fit_idxs = filter(x -> mod(x, 3) != 0, 1:15000)
-
-for model_idx in 1:n_models    
-    fname = joinpath(OUTDIR, "BS_model$(model_idx).jld2")
-    if isfile(fname) && model_idx ∉ [21, 35, 37]
+# for model_idx in [50]
+for model_idx in 1:n_models
+    fname = joinpath(OUTDIR, "BSnew_model$(model_idx).jld2")
+    if isfile(fname)
         continue
     end
     println("Model $(model_idx)")
@@ -78,9 +74,20 @@ for model_idx in 1:n_models
     petab_prob = PEtabODEProblem(pmodel; odesolver=ODESolver(Rodas5P(), verbose=false))
     target = PEtabLogDensity(petab_prob)
 
-    mcmc_fname = joinpath(OUTDIR, "chains_model$(model_idx).jld2");
+    mcmc_fname = joinpath(OUTDIR, "chains7000_model$(model_idx).jld2");
     @nowarn_load mcmc_fname chn ess_df;
     min_ess = round(Int, minimum(ess_df.nt.ess))
+    
+    n_iter, _, n_chain = size(chn)
+    n_tot = n_iter * n_chain
+    g = gcd(n_iter, 10000 ÷ n_chain)
+    b = n_iter ÷ g
+    thres = (10000 ÷ n_chain) ÷ g  
+    bridge_idxs = filter(x -> mod1(x, b) > thres, 1:n_tot)
+    fit_idxs = filter(x -> mod1(x, b) <= thres, 1:n_tot)
+    # display(length(bridge_idxs))
+    # display(length(fit_idxs))
+    # flush(stdout); flush(stderr)
 
     Random.seed!(dir_idx*n_models + model_idx)
     timed_res = @timed bridge_sampling(target, d, chn, bridge_idxs, fit_idxs)
