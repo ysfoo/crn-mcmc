@@ -1,0 +1,3 @@
+This README pertains to performing reaction network inference using spike-and-slab priors for insect life-stage population models. See Section~5.2 of ["Reliable model selection in the presence of parameter non-identifiability"](https://arxiv.org/abs/2605.19807) for a description of the setup. 
+
+The key idea is to use a continuous spike-and-slab prior, and sample in log space with Sequential Monte Carlo, tempering both the likelihood and the prior. The script `SMC.jl` performs sampling, the script `SMC_results.jl` produces results.

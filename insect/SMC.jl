@@ -101,14 +101,14 @@ function make_fig(particles, iter)
     return f
 end
 
-μ_slab, σ_slab = 0., 2.;
+# esize = 4;
 μ_noise, σ_noise = -1, 1;
-slab_prior = Normal(μ_slab, σ_slab)
+μ_slab, σ_slab = 0., 2.;
+μ_spike = -16; σ_spike = σ_slab;
 noise_prior = Normal(μ_noise, σ_noise)
+slab_prior = Normal(μ_slab, σ_slab)
+spike_prior = Normal(μ_spike, σ_spike)
 
-esize = 4;
-μ_spike = -16;
-σ_spike = σ_slab;
 
 function interpolate_ss(idx, μ0, σ0, μ_trg, σ_trg, temper_prior)
     if n_priors == 1
@@ -215,7 +215,7 @@ n_priors = 1;
 # temper_prior = true;
 # move_func = nuts_move;
 # rerun_func = rerun_by_kendall!;
-# ldp_builder = (logprior_func, β) -> make_ldp(logprior_func, β, θ -> logprior_funcs[end](θ) - logprior_funcs[begin](θ));
+# ldp_builder = (logprior_func, β) -> make_ldp(logprior_func, β, θ -> final_logprior_func(θ) - logprior_funcs[begin](θ));
 
 # B. Temper likelihood only, adapt # NUTS iterations, particle-specific step size
 # run_str = "SMC262"
@@ -228,18 +228,18 @@ n_priors = 1;
 # run_str = "SMC602"
 # temper_prior = true;
 # move_func = (rng, particle, target) -> nuts_move(rng, particle, target; n_nuts=6);
-# rerun_func = (particles, prev_states, iter, npass, targetinfo) -> npass < 2;
-# ldp_builder = (logprior_func, β) -> make_ldp(logprior_func, β, θ -> logprior_funcs[end](θ) - logprior_funcs[begin](θ));
+# rerun_func = (particles, prev_states, iter, npass, targetinfo; verbose=0) -> npass < 2;
+# ldp_builder = (logprior_func, β) -> make_ldp(logprior_func, β, θ -> final_logprior_func(θ) - logprior_funcs[begin](θ));
 
 # D. Temper likelihood and prior, adapt # NUTS iterations, shared step size
 run_str = "SMC660"
 temper_prior = true;
 move_func = (rng, particle, target) -> nuts_move(rng, particle, target; adapt_stepsize_func=no_adapt_func);
 rerun_func = (
-    (particles, prev_states, iter, npass, targetinfo); verbose 
+    (particles, prev_states, iter, npass, targetinfo; verbose=0) 
     -> rerun_by_kendall!(particles, prev_states, iter, npass, targetinfo; verbose, update_stepsize=true)
 );
-ldp_builder = (logprior_func, β) -> make_ldp(logprior_func, β, θ -> logprior_funcs[end](θ) - logprior_funcs[begin](θ));
+ldp_builder = (logprior_func, β) -> make_ldp(logprior_func, β, θ -> final_logprior_func(θ) - logprior_funcs[begin](θ));
 
 ### End configure
 
@@ -257,6 +257,7 @@ logprior_funcs = [
         (θ) -> sum(logpdf(dist, val) for (dist, val) in zip(dists, θ))
     end for (slab, spike) in zip(slab_seq, spike_seq)
 ];
+
 init_dists = begin
     mix_prior = MixtureModel([slab_seq[1], spike_seq[1]])
     [
@@ -266,6 +267,14 @@ init_dists = begin
     ];
 end
 init_sampler = (rng) -> rand.(Ref(rng), init_dists);
+
+final_ss_prior = MixtureModel([slab_prior, spike_prior])
+final_dists = [
+    fill(slab_prior, length(std_idxs));
+    fill(final_ss_prior, length(ss_idxs));
+    noise_prior
+]
+final_logprior_func(θ) = sum(logpdf(dist, val) for (dist, val) in zip(final_dists, θ))
 
 β_thres_zero(j) = 0.
 

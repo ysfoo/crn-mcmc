@@ -1,7 +1,7 @@
 include(joinpath(@__DIR__, "stats_helpers.jl"));
 include(joinpath(@__DIR__, "plot_helpers.jl"));
 
-using Distributions, Random, Statistics, StatsBase
+using Distributions, Random, StableRNGs, Statistics, StatsBase
 using Distances, LinearAlgebra, LogExpFunctions, NearestNeighbors
 using AdvancedHMC, Bijectors, LogDensityProblems, LogDensityProblemsAD, ForwardDiff, PreallocationTools
 using Accessors, JLD2, ProgressMeter
@@ -54,9 +54,13 @@ function nuts_move(rng, particle, target; n_nuts=5, adapt_stepsize_func=adapt_us
     )
 
     # adapt stepsize after NUTS using most recent acceptance rate
-    stepsize *= adapt_stepsize_func(info)
+    stepsize_factor = adapt_stepsize_func(info)
+    if isfinite(stepsize_factor)
+        stepsize *= stepsize_factor
+    end
+    logtarget = stats[end].log_density
 
-    return SMCParticle(θs[end], NaN, stats[end].log_density, stepsize, agg_n_nuts, info)
+    return SMCParticle(θs[end], NaN, isfinite(logtarget) ? logtarget : -Inf, stepsize, agg_n_nuts, info)
 end
 
 no_adapt_func(info) = 1.
@@ -166,12 +170,11 @@ function SMC_iteration!(
     particles = [@set p.loglike = (p.logtarget - logprior_func(p.state)) / β for p in particles]
     push!(all_particles, particles)
 
-    agg_acc_rate = mean(p.info.agg_acc_rate for p in particles)
+    agg_acc_rate = mean(filter(isfinite, [p.info.agg_acc_rate for p in particles]))
     median_esjd = median([p.info.esjd for p in particles])
 
     if verbose > 0
         @info "Iter $iter post-MCMC" agg_acc_rate median_esjd
-        display(summarystats(getproperty.(particles, :stepsize)))
         flush(stdout)
         flush(stderr)
     end    
@@ -252,10 +255,13 @@ function run_SMC(
     init_pop_size=pop_size, init_stepsize::Float64=0.01, 
     max_npass=10, β_thres_func=(j)->1e-2,
     verbose=0, vid_path=nothing, make_fig=nothing,
-    parallel=false, pbar_lines=pop_size,
+    parallel=false, pbar_lines=pop_size, rng=Random.default_rng()
 )
-    rngs = parallel ? [Xoshiro() for _ in 1:Threads.nthreads()] : [Random.default_rng()]
-    rng = rngs[1]
+    if parallel
+        rngs = [StableRNG(rand(rng, UInt64)) for _ in 1:Threads.nthreads()]
+    else
+        rngs = [rng]
+    end
     initstates = [init_sampler(rng) for _ in 1:init_pop_size] 
 
     iter = 0
@@ -301,11 +307,16 @@ end
 function resume_SMC(
     pop_size, target_ess, logprior_funcs, ldp_builder, move_func, rerun_func!, fname;
     max_npass=10, β_thres_func=(j)->1e-2,
-    verbose=0, vid_path=nothing, make_fig=nothing, parallel=false, pbar_lines=pop_size
+    verbose=0, vid_path=nothing, make_fig=nothing, 
+    parallel=false, pbar_lines=pop_size, rng=Random.default_rng()
 )
     @load fname all_particles iter targetinfos npass_vec smc_times
     @assert length(all_particles) == (iter + 1)
-    rngs = parallel ? [Xoshiro() for _ in 1:Threads.nthreads()] : [Random.default_rng()]
+    if parallel
+        rngs = [StableRNG(rand(rng, UInt64)) for _ in 1:Threads.nthreads()]
+    else
+        rngs = [rng]
+    end
 
     figs = Figure[]
     if !isnothing(vid_path)
@@ -338,14 +349,15 @@ function resume_SMC(
 end
 
 
-struct PSParticle
-    state::AbstractVector{Float64}
-    loglike::Float64   # log likelihood
-    logtarget::Float64 # log target density
-    stepsize::Float64  # NUTS step size
-    n_nuts::Int64      # number of NUTS iterations
-    info::NamedTuple
-end
+## Deprecated
+# struct PSParticle
+#     state::AbstractVector{Float64}
+#     loglike::Float64   # log likelihood
+#     logtarget::Float64 # log target density
+#     stepsize::Float64  # NUTS step size
+#     n_nuts::Int64      # number of NUTS iterations
+#     info::NamedTuple
+# end
 
 
 # Runs one PS iteration: reweight → resample → move.
@@ -405,8 +417,8 @@ function PS_iteration!(
     states_before_move = getproperty.(reduce(vcat, all_particles)[sampled_idxs], :state)
 
     # Lookup particle-specific step size and acceptance rate, and reset number of NUTS iterations
-    prev_btree = BallTree(reduce(hcat, p.state for p in all_particles[end]))
-    lookup, _ = nn(prev_btree, reduce(hcat, states_before_move))
+    prev_btree = BallTree(stack(p.state for p in all_particles[end]))
+    lookup, _ = nn(prev_btree, stack(states_before_move))
     particles = [
         SMCParticle(state, NaN, NaN, p_lookup.stepsize, 0, NamedTuple())
         for (state, p_lookup) in zip(states_before_move, all_particles[end][lookup])
@@ -425,12 +437,11 @@ function PS_iteration!(
     particles = [@set p.loglike = (p.logtarget - logprior_func(p.state)) / β for p in particles]
     push!(all_particles, particles)
 
-    agg_acc_rate = mean(p.info.agg_acc_rate for p in particles)
+    agg_acc_rate = mean(filter(isfinite, [p.info.agg_acc_rate for p in particles]))
     median_esjd = median([p.info.esjd for p in particles])
 
     if verbose > 0 
         @info "Iter $iter post-MCMC" agg_acc_rate median_esjd logZs[end]
-        display(summarystats(getproperty.(particles, :stepsize)))
         flush(stdout)
         flush(stderr)
     end    
@@ -529,10 +540,13 @@ function run_PS(
     init_pop_size=pop_size, init_stepsize::Float64=0.01, 
     max_npass=10, β_thres_func=(j)->1e-2,
     verbose=0, vid_path=nothing, make_fig=nothing,
-    parallel=false, pbar_lines=pop_size,
+    parallel=false, pbar_lines=pop_size, rng=Random.default_rng()
 )
-    rngs = parallel ? [Xoshiro() for _ in 1:Threads.nthreads()] : [Random.default_rng()]
-    rng = rngs[1]
+    if parallel
+        rngs = [StableRNG(rand(rng, UInt64)) for _ in 1:Threads.nthreads()]
+    else
+        rngs = [rng]
+    end
     initstates = [init_sampler(rng) for _ in 1:init_pop_size] 
 
     iter = 0

@@ -43,23 +43,22 @@ param_labels = [
 ];
 sym2label = Dict(zip(Symbol.(parameters(models[end])), param_labels))
 
-μ_slab, σ_slab = 0., 2.;
+# esize = 4;
 μ_noise, σ_noise = -1, 1;
-slab_prior = Normal(μ_slab, σ_slab)
+μ_slab, σ_slab = 0., 2.;
+μ_spike = -16; σ_spike = σ_slab;
 noise_prior = Normal(μ_noise, σ_noise)
+slab_prior = Normal(μ_slab, σ_slab)
+spike_prior = Normal(μ_spike, σ_spike)
 
-esize = 4;
-μ_spike = -16;
-σ_spike = σ_slab;
-
-function interpolate_ss(iter, μ_trg, σ_trg, temper_prior)
+function interpolate_ss(idx, μ0, σ0, μ_trg, σ_trg, temper_prior)
     if n_priors == 1
         return temper_prior ? Normal(μ0, σ0) : Normal(μ_trg, σ_trg)
     end
     n_inter = n_priors-1
     r = σ_trg/σ0
-    σ = exp(log(σ0) + (iter/n_inter)*log(r))
-    μ = μ0 + (1-r^(iter/n_inter))/(1-r)*(μ_trg - μ0)
+    σ = exp(log(σ0) + (idx/n_inter)*log(r))
+    μ = μ0 + (1-r^(idx/n_inter))/(1-r)*(μ_trg - μ0)
     return Normal(μ, σ)
 end
 
@@ -141,17 +140,24 @@ function get_pvec(particles, thres, Ws=ones(length(particles)))
 end
 
 logZs_fname = joinpath(@__DIR__, "output/logZs.jld2");
-@load logZs_fname rAMIS_logZvecs BS_logZvecs;
+@load logZs_fname rAMIS_logZvecs BS_logZvecs all_times;
 pvecs_BS = [exp.(logZvec .- logsumexp(logZvec)) for logZvec in BS_logZvecs];
 pvecs_rAMIS = [exp.(logZvec .- logsumexp(logZvec)) for logZvec in rAMIS_logZvecs];
 tvds_rAMIS = [0.5sum(abs, pvec_BS .- pvec_rAMIS) for (pvec_BS, pvec_rAMIS) in zip(pvecs_BS, pvecs_rAMIS)];
 
 # run_str, n_priors, temper_prior = ("SMC362", 20, true)
 # run_str, n_priors, temper_prior = ("SMC062", 36, true)
+
 run_str, n_priors, temper_prior = ("SMC662", 1, true)
+# run_str, n_priors, temper_prior = ("SMC602", 1, true)
+# run_str, n_priors, temper_prior = ("SMC660", 1, true)
+run_str, n_priors, temper_prior = ("SMC262", 1, false)
+
+SMC_fname = joinpath(@__DIR__, "output/$(run_str).jld2");
+
 (μ0, σ0) = (n_priors == 1) ? (-8., 4.) : (-4., 3.)
-slab_seq = interpolate_ss.(0:(n_priors-1), μ_slab, σ_slab, temper_prior);
-spike_seq = interpolate_ss.(0:(n_priors-1), μ_spike, σ_spike, temper_prior);
+slab_seq = interpolate_ss.(0:(n_priors-1), μ0, σ0, μ_slab, σ_slab, temper_prior);
+spike_seq = interpolate_ss.(0:(n_priors-1), μ0, σ0, μ_spike, σ_spike, temper_prior);
 thres_vec = 0.5 .* (getproperty.(slab_seq, :μ) .+ getproperty.(spike_seq, :μ));
 logprior_funcs = [
     begin
@@ -171,10 +177,18 @@ hours_SMC = [0. for _ in 1:n_feasible];
 ns_nuts = [0 for _ in 1:n_feasible];
 targetinfos_vec = [Tuple{Int,Float64}[] for _ in 1:n_feasible];
 
+if isfile(SMC_fname)
+    @load SMC_fname pvecs_SMC pvecs_rSMC hours_SMC ns_nuts targetinfos_vec;
+end;
+
 tmp = 0;
 @showprogress for dir_idx in 1:n_feasible
     OUTDIR = joinpath(@__DIR__, "output/data$(dir_idx)");
     fname = "$OUTDIR/$(run_str).jld2"
+    if hours_SMC[dir_idx] > 0
+        tmp += 1
+        continue
+    end
     if isfile(fname)
         # @load fname all_particles ess_vec iter targetinfos smc_times;
         @load fname all_particles iter targetinfos smc_times;
@@ -205,10 +219,33 @@ summarystats(filter(!iszero, ns_nuts)) |> display
 summarystats(filter(!iszero, hours_SMC)) |> display
 summarystats(filter(!iszero, length.(targetinfos_vec)) .- 1) |> display
 
+@save SMC_fname pvecs_SMC pvecs_rSMC hours_SMC ns_nuts targetinfos_vec;
+
+summarystats((ns_nuts ./ (length.(targetinfos_vec) .- 1)) .|> mean)
+summarystats(375 ./ hours_SMC)
+
 hist(filter(!iszero, ns_nuts), axis=(xlabel="Number of NUTS iterations",))
 hist(filter(!iszero, hours_SMC), axis=(xlabel="Computational time (hours)",))
 hist(filter(!iszero, length.(targetinfos_vec)) .- 1, axis=(xlabel="Number of SMC iterations", xticks=1:100))
 
+
+## Ad hoc correaction for data21_model50
+begin
+    dir_idx = 21
+    pvecs_BSnew = copy.(pvecs_BS)
+    BS_logZvec = copy(BS_logZvecs[dir_idx])
+    BS_logZvec[50] = 70.33643911435237
+    pvecs_BSnew[dir_idx] = exp.(BS_logZvec .- logsumexp(BS_logZvec))
+end;
+
+tvds_SMC = [dir_idx => 0.5sum(abs, pvec_BS .- pvec_SMC) for (dir_idx, pvec_BS, pvec_SMC) in zip(1:n_feasible, pvecs_BSnew, pvecs_SMC) if !isempty(pvec_SMC)];
+summarystats(last.(tvds_SMC)) |> display
+
+tvds_rSMC = [dir_idx => 0.5sum(abs, pvec_BS .- pvec_rSMC) for (dir_idx, pvec_BS, pvec_rSMC) in zip(1:n_feasible, pvecs_BSnew, pvecs_rSMC) if !isempty(pvec_rSMC)];
+summarystats(last.(tvds_rSMC)) |> display
+
+
+## Plots of TVD and pvec
 using SpecialFunctions
 mad_func(N, p) = exp(floor(N*p)*log(p)+(N-floor(N*p))*log(1-p)+logabsbinomial(N-1, floor(Int, N*p))[1])
 
@@ -218,7 +255,7 @@ begin
     f = Figure()
     ax = Axis(
         f[1,1], limits=((0., 1.025*maximum(etvds)), (0., 1.025*maximum(tvds_SMC .|> last))),
-        xlabel="Expected TVD assuming ideal sampling", ylabel="Actual TVD"
+        xlabel="Expected TVD assuming ideal sampling", ylabel="Actual TVD (SMC)"
     )
     lines!(
         [0, maximum(tvds_SMC .|> last)], [0, maximum(tvds_SMC .|> last)], 
@@ -235,7 +272,7 @@ begin
     f = Figure()
     ax = Axis(
         f[1,1], limits=((0., 1.025*maximum(etvds)), (0., 1.025*maximum(tvds_rSMC .|> last))),
-        xlabel="Expected TVD assuming ideal sampling", ylabel="Actual TVD"
+        xlabel="Expected TVD assuming ideal sampling", ylabel="Actual TVD (recylced SMC)"
     )
     lines!(
         [0, maximum(tvds_rSMC .|> last)], [0, maximum(tvds_rSMC .|> last)], 
@@ -263,10 +300,10 @@ begin
     # dir_idx = 21
 
     # AMIS and bridge agree
-    # dir_idx = 39
+    dir_idx = 39
 
     # AMIS and bridge agree
-    dir_idx = 3
+    # dir_idx = 3
 
     # AMIS and bridge agree
     # dir_idx = 31 
@@ -276,26 +313,26 @@ begin
 
     COLORS = Makie.wong_colors()[[4,2,5]]
 
-    f = Figure(size=(800, 400))
+    f = Figure(size=(400, 640))
     ax = Axis(
-        f[1,1], 
-        xlabel="Models ranked by bridge sampling", ylabel="Model posterior probability",
-        limits=((0.3, n_plot+0.7), (0, nothing)), xticks = (1:n_plot, string.(plot_order))
+        f[1,1], yreversed=true,
+        ylabel="Models ranked by bridge sampling", xlabel="Model posterior probability",
+        limits=((0, nothing), (0.3, n_plot+0.7)), yticks = (1:n_plot, string.(plot_order))
     )
     width = 0.25
     barplot!(
-        (1:n_plot) .- width, pvecs_rAMIS[dir_idx][plot_order], 
+        (1:n_plot) .- width, pvecs_rAMIS[dir_idx][plot_order], direction=:x,
         gap=0, width=width, color=COLORS[1], label="Robust AMIS"
     )
     barplot!(
-        (1:n_plot) , pvecs_BS[dir_idx][plot_order], 
+        (1:n_plot) , pvecs_BS[dir_idx][plot_order], direction=:x,
         gap=0, width=width, color=COLORS[2], label="Bridge sampling"
     )
     barplot!(
-        (1:n_plot) .+ width, pvecs_SMC[dir_idx][plot_order], 
+        (1:n_plot) .+ width, pvecs_SMC[dir_idx][plot_order], direction=:x,
         gap=0, width=width, color=COLORS[3], label="Spike-and-slab SMC"
     )
-    axislegend(ax, position=:rt)
+    axislegend(ax, position=:rb)
     display(f)
 end
 
@@ -328,33 +365,8 @@ begin
     save(joinpath(@__DIR__, "imgs/SMC_10000_modelprobs.png"), f, px_per_unit=4)
 end
 
-
-
-
 # keep = findall(p -> all(p.state .> -8), all_particles[end])
 # hist([p.logtarget for p in all_particles[end]][keep] .+ 6log(2), bins=65:0.5:85, alpha=0.5, normalization=:pdf);
 # hist!(vec(chn[:lp].data), bins=65:0.5:85, alpha=0.5, normalization=:pdf);
 # display(current_figure())
 
-## Check MCMC trace
-
-using Turing
-dir_idx = n_feasible
-model_idx = 64
-mcmc_fname = joinpath(@__DIR__, "output/data$(dir_idx)/chains_model$(model_idx).jld2");
-@load mcmc_fname chn;
-describe(chn)
-
-d = length(parameters(models[model_idx]))
-begin
-    f = Figure(size=(800, 800))
-    for i in 1:d
-        i1 = cld(i, 2)
-        i2 = mod1(i, 2)
-        ax = Axis(f[i1,i2])
-        for c in 1:size(chn.value, 3)
-            lines!(chn[:,i,c], alpha=0.5)
-        end
-    end
-    display(f)
-end

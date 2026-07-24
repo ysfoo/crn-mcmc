@@ -1,3 +1,7 @@
+# Reaction network inference with spike-and-slab priors (WIP)
+
+Please refer to the README under `insect`.
+
 # Bayesian model selection of differential equation models under parameter non-identifiability
 
 This repository hosts the code for reproducing the results of the manuscript "Reliable model selection in the presence of parameter non-identifiability" ([arXiv preprint](https://arxiv.org/abs/2605.19807)). Bayesian model selection is performed by computing model posterior probabilities exhaustively, which requires the evidence of each model to be approximated deterministically or estimated with Monte Carlo methods. The following methods for computing model evidence are implemented:

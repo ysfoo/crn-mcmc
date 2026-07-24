@@ -66,4 +66,4 @@ rx_labels = [
         s = Base.replace(s, "*" => "")
         s
     end for rx in rx_vec
-]
+];
