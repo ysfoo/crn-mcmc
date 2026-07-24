@@ -46,7 +46,7 @@ function robust_AMIS(target, prior_sampler, prior_means, prior_vars;
         new_logps[findall(isnan, new_logps)] .= -Inf
         append!(all_logps, new_logps)
 
-        new_logqs_mat = reduce(hcat, [logpdf(gm_i, new_samples) for gm_i in gm_vec]) # N_incr x I
+        new_logqs_mat = stack([logpdf(gm_i, new_samples) for gm_i in gm_vec]) # N_incr x I
         all_logqs_mat = hcat(all_logqs_mat, new_logqs_mat')
 
         all_logqs = vec(logsumexp(all_logqs_mat .+ log.(prop_ws); dims=1))
@@ -166,7 +166,7 @@ function robust_AMIS(target, prior_sampler, prior_means, prior_vars;
     new_logps[findall(isnan, new_logps)] .= -Inf
     append!(all_logps, new_logps);
 
-    new_logqs_mat = reduce(hcat, [logpdf(gm_i, new_samples) for gm_i in gm_vec]); # N_incr x I
+    new_logqs_mat = stack([logpdf(gm_i, new_samples) for gm_i in gm_vec]); # N_incr x I
     all_logqs_mat = hcat(all_logqs_mat, new_logqs_mat');
 
     all_logqs = vec(logsumexp(all_logqs_mat .+ log.(prop_ws); dims=1));

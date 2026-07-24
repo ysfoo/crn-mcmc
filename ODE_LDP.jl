@@ -78,7 +78,7 @@ function _logdensity(ldprob::OrdinaryDiffEqLDP, θ::AbstractVector{T}; show=fals
     if show
         display(prob.ps)
         display(sol.u[end])
-        f = Makie.series(reduce(hcat, petab_sol(data.t).u))
+        f = Makie.series(stack(petab_sol(data.t).u))
         display(f)
     end
 

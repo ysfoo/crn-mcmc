@@ -34,7 +34,7 @@ function plot_pairs(
     hist_kwargs=(;), bins_vec=nothing
 )
     n_dim = length(states[1])
-    δs = std.(eachrow(reduce(hcat, states))) / 3
+    δs = std.(eachrow(stack(states))) / 3
     if isnothing(figsize)
         figsize = (120*n_dim, 120*n_dim)
     end

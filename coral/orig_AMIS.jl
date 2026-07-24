@@ -48,7 +48,7 @@ function orig_AMIS(target, MAP, hess; Kmax=50, df=4)
         new_logps[findall(isnan, new_logps)] .= -Inf
         append!(all_logps, new_logps)
 
-        new_logqs_mat = reduce(hcat, [
+        new_logqs_mat = stack([
             i == 1 ? logpdf(q_init, new_samples) : logpdf(gm_i, new_samples) 
         for (i, gm_i) in enumerate(gm_vec)]) # N_incr x I
         all_logqs_mat = hcat(all_logqs_mat, new_logqs_mat')
@@ -130,7 +130,7 @@ function orig_AMIS(target, MAP, hess; Kmax=50, df=4)
     new_logps[findall(isnan, new_logps)] .= -Inf
     append!(all_logps, new_logps);
 
-    new_logqs_mat = reduce(hcat, [
+    new_logqs_mat = stack([
         i == 1 ? logpdf(q_init, new_samples) : logpdf(gm_i, new_samples) 
     for (i, gm_i) in enumerate(gm_vec)]) # N_incr x I
     all_logqs_mat = hcat(all_logqs_mat, new_logqs_mat');

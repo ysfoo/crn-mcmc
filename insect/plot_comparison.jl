@@ -109,7 +109,7 @@ else
     @save MCMCstats_fname MCMC_miness MCMC_maxrhat MCMC_times
 end
 
-MCMC_essmat = reduce(hcat, MCMC_miness)';
+MCMC_essmat = stack(MCMC_miness)';
 summarystats((MCMC_times ./ 60) .|> sum)
 
 heatmap(MCMC_essmat)
@@ -209,7 +209,7 @@ else
     @save logZs_fname all_times BIC_logZvecs LIS_logZvecs orig_logZvecs rAMIS_logZvecs BS_logZvecs
 end
 
-hrs_mat = reduce(hcat, all_times) ./ 60; # method x datasets
+hrs_mat = stack(all_times) ./ 60; # method x datasets
 
 hrs_mat[5, 25] / hrs_mat[4, 25]
 

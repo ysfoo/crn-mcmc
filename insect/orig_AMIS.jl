@@ -57,7 +57,7 @@ function orig_AMIS(target, MAP, hess; Kmax=50, df=4, n_out=10000)
         new_logps[findall(isnan, new_logps)] .= -Inf
         append!(all_logps, new_logps)
 
-        new_logqs_mat = reduce(hcat, [
+        new_logqs_mat = stack([
             i == 1 ? logpdf(q_init, new_samples) : logpdf(gm_i, new_samples) 
         for (i, gm_i) in enumerate(gm_vec)]) # N_incr x I
         all_logqs_mat = hcat(all_logqs_mat, new_logqs_mat')
@@ -116,7 +116,7 @@ function orig_AMIS(target, MAP, hess; Kmax=50, df=4, n_out=10000)
     new_logps[findall(isnan, new_logps)] .= -Inf
     append!(all_logps, new_logps);
 
-    new_logqs_mat = reduce(hcat, [
+    new_logqs_mat = stack([
         i == 1 ? logpdf(q_init, new_samples) : logpdf(gm_i, new_samples) 
     for (i, gm_i) in enumerate(gm_vec)]) # N_incr x I
     all_logqs_mat = hcat(all_logqs_mat, new_logqs_mat');
@@ -189,9 +189,9 @@ end
 # @time keep_dists, viable_dists = init_dists(target, prior_sampler, prior_means, prior_vars, 50, 100, 2d; progress=true);
 # length(viable_dists)
 # length(keep_dists)
-# round.(reduce(hcat, getproperty.(keep_dists, :μ))', digits=2)
+# round.(stack(getproperty.(keep_dists, :μ))', digits=2)
 
-# zs = reduce(hcat, [(dist.μ .- prior_means) ./ sqrt.(prior_vars) for dist in viable_dists]);
+# zs = stack([(dist.μ .- prior_means) ./ sqrt.(prior_vars) for dist in viable_dists]);
 # summarystats(zs)
 
 # include(joinpath(@__DIR__, "../plot_helpers.jl"));

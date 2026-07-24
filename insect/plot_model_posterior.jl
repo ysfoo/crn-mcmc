@@ -332,7 +332,7 @@ end
 #                     getindex.(sol.u, pred_dim)
 #                 end for i in 1:15000
 #             ];
-#             BS_single_predmat = reduce(hcat, BS_single_preds);
+#             BS_single_predmat = stack(BS_single_preds);
 #             BS_lo_preds = quantile.(eachrow(BS_single_predmat), 0.05);
 #             BS_med_preds = quantile.(eachrow(BS_single_predmat), 0.5);
 #             BS_hi_preds = quantile.(eachrow(BS_single_predmat), 0.95);
